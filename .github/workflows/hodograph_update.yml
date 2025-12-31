@@ -1,0 +1,33 @@
+name: HREF Hodograph Grid
+
+on:
+  schedule:
+    - cron: '15 4,16 * * *' # Offset from LPMM run to avoid server load
+  workflow_dispatch: 
+
+jobs:
+  build-hodographs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install numpy matplotlib cartopy pygrib metpy requests
+
+      - name: Run Hodograph Script
+        run: python HODO_GRID.py
+
+      - name: Commit and Push
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add -A
+          git commit -m "Update HREF Hodograph Grid" --allow-empty
+          git push
