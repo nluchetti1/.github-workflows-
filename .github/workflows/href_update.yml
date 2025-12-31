@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     
     permissions:
-      contents: write
+      contents: write # Needed for Pages deployment
       
     steps:
       - name: Checkout Code
@@ -47,11 +47,19 @@ jobs:
             echo "Waiting 5 minutes... (Attempt $i/12)"
             sleep 300
           done
-          echo "Timeout: Data not found on NOMADS."
           exit 1
 
       - name: Run HREF Script
         run: python LPMM_TIMELAG.py
+
+      - name: Prepare Dashboard with Timestamp
+        run: |
+          # Create a dynamic timestamp
+          TIMESTAMP=$(date -u +'%Y-%m-%d %H:%M UTC')
+          # Inject the timestamp into the HTML file before moving it
+          sed -i "s/LAST_UPDATED/$TIMESTAMP/g" index.html
+          # Copy the dashboard into the output folder for deployment
+          cp index.html ./href_data/
 
       - name: Deploy to GitHub Pages
         if: success()
@@ -59,7 +67,7 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./href_data
-          force_orphan: true 
+          force_orphan: true # Prevents git lock errors
           user_name: 'github-actions[bot]'
           user_email: 'github-actions[bot]@users.noreply.github.com'
 
