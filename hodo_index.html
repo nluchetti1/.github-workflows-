@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>HREF Hodograph Analysis</title>
+    <style>
+        body { font-family: sans-serif; background: #111; color: white; text-align: center; }
+        .map-container { position: relative; width: 90%; max-width: 1200px; margin: auto; }
+        #main-map { width: 100%; border: 2px solid #333; border-radius: 8px; }
+        .timeline { display: flex; justify-content: center; gap: 5px; margin-top: 20px; flex-wrap: wrap; }
+        .hour-box {
+            padding: 10px 15px; background: #222; border: 1px solid #444;
+            cursor: pointer; transition: 0.2s; border-radius: 4px; font-size: 0.9em;
+        }
+        .hour-box:hover, .hour-box.active { background: #4da6ff; color: black; font-weight: bold; }
+        .info { margin-bottom: 10px; color: #aaa; }
+    </style>
+</head>
+<body>
+    <h1>NC Grid-Point Hodograph Explorer</h1>
+    <p class="info">Hover over the hours below to animate the forecast</p>
+    
+    <div class="map-container">
+        <img id="main-map" src="hodo_f01.png" alt="Loading Forecast...">
+    </div>
+
+    <div class="timeline" id="timeline-bar">
+        </div>
+
+    <script>
+        const map = document.getElementById('main-map');
+        const timeline = document.getElementById('timeline-bar');
+        const totalHours = 48; // Adjust based on your HREF download
+
+        // Preload images to prevent flickering
+        const images = [];
+        for (let i = 1; i <= totalHours; i++) {
+            const fStr = i.toString().padStart(2, '0');
+            const img = new Image();
+            img.src = `hodo_f${fStr}.png`;
+            images.push(img);
+
+            // Create the hover boxes
+            const box = document.createElement('div');
+            box.className = 'hour-box';
+            box.innerText = `F${fStr}`;
+            
+            // The magic: Change image on mouseenter
+            box.onmouseenter = () => {
+                map.src = img.src;
+                document.querySelectorAll('.hour-box').forEach(b => b.classList.remove('active'));
+                box.classList.add('active');
+            };
+            timeline.appendChild(box);
+        }
+    </script>
+</body>
+</html>
