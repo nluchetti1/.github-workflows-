@@ -8,6 +8,8 @@ on:
 jobs:
   run-weather-script:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # Needed for deploying to GitHub Pages
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -33,11 +35,7 @@ jobs:
           if [ "$HOUR" -lt 12 ]; then RUN_HOUR="00"; else RUN_HOUR="12"; fi
           URL="https://nomads.ncep.noaa.gov/pub/data/nccf/com/href/prod/href.${DATE}/ensprod/href.t${RUN_HOUR}z.conus.lpmm.f01.grib2"
           for i in {1..12}; do
-            if curl --output /dev/null --silent --head --fail "$URL"; then
-              echo "Data is ready!"
-              exit 0
-            fi
-            echo "Waiting 5 minutes... (Attempt $i/12)"
+            if curl --output /dev/null --silent --head --fail "$URL"; then exit 0; fi
             sleep 300
           done
           exit 1
@@ -45,15 +43,13 @@ jobs:
       - name: Run HREF Script
         run: python LPMM_TIMELAG.py
 
-      - name: Upload Results
-        if: always() 
-        uses: actions/upload-artifact@v4
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
         with:
-          name: href-weather-plots
-          path: href_data/*.png
-          retention-days: 1 # NEW: Delete zip after 1 day
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./href_data
+          force_orphan: true # Keeps only newest files
 
       - name: Automated Cleanup
         if: always() 
-        run: |
-          git clean -f -d # NEW: Wipe the server machine
+        run: git clean -f -d
