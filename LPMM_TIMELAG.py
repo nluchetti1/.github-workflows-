@@ -1,5 +1,5 @@
 import matplotlib
-matplotlib.use('Agg') # Required for GitHub Actions
+matplotlib.use('Agg')
 import os
 import time
 import numpy as np
@@ -28,31 +28,21 @@ def download_file(url, save_path, retries=2, delay=10):
         if response.status_code == 200:
             with open(save_path, 'wb') as file:
                 file.write(response.content)
-            print(f"Success: {os.path.basename(url)}")
             return True
-        else:
-            print(f"Missing (404): {os.path.basename(url)}")
     except Exception as e:
         print(f"Error downloading {url}: {e}")
     return False
 
 def unpack_total_precipitation(grib_path):
-    """Extracts precip data using universal GRIB2 keys."""
     try:
         with pygrib.open(grib_path) as grb_file:
             msgs = grb_file.select(parameterCategory=1, parameterNumber=8)
             if msgs:
-                msg = msgs[0]
-                return msg.data()
-            msgs = grb_file.select(name='Total precipitation')
-            if msgs:
                 return msgs[0].data()
-    except Exception as e:
-        print(f"Unpack error: {e}")
-    return None, None, None
+    except Exception:
+        return None, None, None
 
 def clean_up_grib_files(directory):
-    """Deletes temporary GRIB files to keep the repo clean."""
     files = glob.glob(os.path.join(directory, "*.grib2"))
     for f in files:
         try:
@@ -85,7 +75,7 @@ final_lats, final_lons = None, None
 
 for idx, run in enumerate(runs):
     hourly_data = []
-    print(f"--- Processing Run: {run['date']} {run['hour']}Z ---")
+    print(f"Processing Run: {run['date']} {run['hour']}Z")
     for f_hour in run['f_range']:
         f_str = f"{f_hour:02d}"
         url = f"{base_url}/href.{run['date']}/ensprod/href.t{run['hour']}z.conus.lpmm.f{f_str}.grib2"
@@ -107,57 +97,34 @@ if len(all_results) >= 1:
     cmap = mcolors.ListedColormap(cmap_data, 'precip')
     norm = mcolors.BoundaryNorm(clevs, cmap.N)
 
-    # A: Comparison Plot (3-panel)
+    # Comparison Plot
     fig, axes = plt.subplots(1, 3, figsize=(18, 7.5), subplot_kw={'projection': ccrs.PlateCarree()})
     fig.subplots_adjust(left=0.05, right=0.95, bottom=0.22, top=0.85, wspace=0.05)
-    
     cs = None
     for i in range(3):
         if i < len(all_results):
             res = all_results[i]
             cs = axes[i].contourf(final_lons, final_lats, res['data'], clevs, cmap=cmap, norm=norm, alpha=0.5)
-            axes[i].set_title(f'{res["time"].strftime("%Y-%m-%d %H:%M Z")}\n24hr HREF LPMM [in]', fontsize=10, fontweight='bold', pad=8)
-        
-        axes[i].coastlines(resolution='10m')
-        axes[i].add_feature(cfeature.STATES, linewidth=0.8, edgecolor='black')
-        axes[i].add_feature(USCOUNTIES.with_scale('500k'), edgecolor='gray', linewidth=0.4)
-        # NORTH CAROLINA DOMAIN
+            axes[i].set_title(f'{res["time"].strftime("%Y-%m-%d %H:%M Z")}\n24hr HREF LPMM [in]', fontsize=10, fontweight='bold')
+        axes[i].add_feature(cfeature.STATES, linewidth=0.8); axes[i].add_feature(USCOUNTIES.with_scale('500k'), edgecolor='gray', linewidth=0.4)
         axes[i].set_extent([-84.8, -74, 31, 39])
-
-    # BIGGER COLORBAR FONT FIX
+    
     cbar_ax = fig.add_axes([0.15, 0.12, 0.7, 0.03])
     cbar = fig.colorbar(cs, cax=cbar_ax, orientation='horizontal', ticks=clevs)
-    cbar.ax.tick_params(labelsize=11) # Tick numbers
-    cbar.set_label('Precipitation (inches)', fontsize=15, fontweight='bold') # Main label
-    
-    fig.suptitle(f'24hr HREF LPMM [in] dprog/dt\n{valid_range}', fontsize=16, fontweight='bold', y=0.96)
-    plt.savefig(os.path.join(output_folder, 'HREF_LPMM_RUN_COMPARE.png'), dpi=300)
+    cbar.ax.tick_params(labelsize=11); cbar.set_label('Precipitation (inches)', fontsize=15, fontweight='bold')
+    plt.savefig(os.path.join(output_folder, 'latest_compare.png'), dpi=300) # STATIC NAME
 
-    # B: Threshold Plot (4-panel)
+    # Threshold Plot
     fig2, ax2 = plt.subplots(2, 2, figsize=(14, 11), subplot_kw={'projection': ccrs.PlateCarree()})
     blue_shades = ['#00008B', '#4169E1', '#87CEFA']
-    legend_elements = [Line2D([0], [0], marker='o', color='w', label=res['time'].strftime("%Y-%m-%d %H:%M Z"),
-                              markerfacecolor=blue_shades[idx], markersize=8) for idx, res in enumerate(all_results)]
-    
+    legend_elements = [Line2D([0], [0], marker='o', color='w', label=res['time'].strftime("%Y-%m-%d %H:%M Z"), markerfacecolor=blue_shades[idx], markersize=8) for idx, res in enumerate(all_results)]
     for i, thresh in enumerate([3, 6, 9, 12]):
         row, col = divmod(i, 2)
         for j, res in enumerate(all_results):
             m_data = np.ma.masked_less(res['data'], thresh)
             ax2[row, col].contourf(final_lons, final_lats, m_data, cmap=mcolors.ListedColormap([blue_shades[j]]), levels=[thresh, 99], alpha=0.6)
-        
-        ax2[row, col].coastlines(resolution='10m')
-        ax2[row, col].add_feature(cfeature.STATES, linewidth=0.8, edgecolor='black')
-        ax2[row, col].add_feature(USCOUNTIES.with_scale('500k'), edgecolor='gray', linewidth=0.3, alpha=0.5)
-        # NORTH CAROLINA DOMAIN
-        ax2[row, col].set_extent([-84.8, -74, 31, 39])
-        
-        ax2[row, col].set_title(f'> {thresh} inches', fontsize=12, fontweight='bold')
-        ax2[row, col].legend(handles=legend_elements, loc='lower right', title='HREF Run', fontsize=8)
-    
-    fig2.subplots_adjust(left=0.05, right=0.95, bottom=0.05, top=0.88, wspace=0.1, hspace=0.2)
-    fig2.suptitle(f'24hr HREF LPMM Threshold Compare\n{valid_range}', fontsize=16, fontweight='bold', y=0.96)
-    plt.savefig(os.path.join(output_folder, 'HREF_LPMM_THRESHOLD_COMPARE.png'), dpi=300, bbox_inches='tight')
+        ax2[row, col].add_feature(cfeature.STATES); ax2[row, col].set_extent([-84.8, -74, 31, 39])
+        ax2[row, col].legend(handles=legend_elements, loc='lower right', fontsize=8)
+    plt.savefig(os.path.join(output_folder, 'latest_threshold.png'), dpi=300) # STATIC NAME
 
-# --- 6. CLEANUP ---
 clean_up_grib_files(output_folder)
-print("Process Complete.")
