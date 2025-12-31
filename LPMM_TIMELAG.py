@@ -14,11 +14,11 @@ from datetime import datetime, timedelta
 from metpy.plots import USCOUNTIES
 from matplotlib.lines import Line2D
 import pytz
+import glob
 
 # --- 1. DYNAMIC FOLDER SETUP ---
 output_folder = "href_data"
-if not os.path.exists(output_folder):
-    os.makedirs(output_folder)
+os.makedirs(output_folder, exist_ok=True)
 
 # --- 2. DOWNLOAD & UTILITY FUNCTIONS ---
 def download_file(url, save_path, retries=2, delay=10):
@@ -28,10 +28,7 @@ def download_file(url, save_path, retries=2, delay=10):
         if response.status_code == 200:
             with open(save_path, 'wb') as file:
                 file.write(response.content)
-            print(f"Success: {os.path.basename(url)}")
             return True
-        else:
-            print(f"Missing (404): {os.path.basename(url)}")
     except Exception as e:
         print(f"Error downloading {url}: {e}")
     return False
@@ -41,14 +38,18 @@ def unpack_total_precipitation(grib_path):
         with pygrib.open(grib_path) as grb_file:
             msgs = grb_file.select(parameterCategory=1, parameterNumber=8)
             if msgs:
-                msg = msgs[0]
-                return msg.data()
-            msgs = grb_file.select(name='Total precipitation')
-            if msgs:
                 return msgs[0].data()
-    except Exception as e:
-        print(f"Unpack error: {e}")
-    return None, None, None
+    except Exception:
+        return None, None, None
+
+def clean_up_grib_files(directory):
+    """Deletes temporary GRIB files to save space."""
+    files = glob.glob(os.path.join(directory, "*.grib2"))
+    for f in files:
+        try:
+            os.remove(f)
+        except:
+            pass
 
 # --- 3. TIMING & RUN SELECTION ---
 now_utc = datetime.now(pytz.UTC)
@@ -65,7 +66,7 @@ if 13 <= current_hour <= 23:
 else:
     runs = [{"date": date_now, "hour": "00", "f_range": range(1, 25)},
             {"date": date_prev, "hour": "12", "f_range": range(13, 37)},
-            {"date": date_prev, "hour": "00", "f_range": range(25, 49)}]
+            {"date": date_prev, "hour": "00", "f_range": range(25, 48)}]
     valid_range = f"Valid: 00Z {date_now} to 00Z {(now_utc+timedelta(days=1)).strftime('%Y%m%d')}"
 
 # --- 4. DATA COLLECTION ---
@@ -75,7 +76,7 @@ final_lats, final_lons = None, None
 
 for idx, run in enumerate(runs):
     hourly_data = []
-    print(f"--- Processing Run: {run['date']} {run['hour']}Z ---")
+    print(f"Processing Run: {run['date']} {run['hour']}Z")
     for f_hour in run['f_range']:
         f_str = f"{f_hour:02d}"
         url = f"{base_url}/href.{run['date']}/ensprod/href.t{run['hour']}z.conus.lpmm.f{f_str}.grib2"
@@ -97,54 +98,44 @@ if len(all_results) >= 1:
     cmap = mcolors.ListedColormap(cmap_data, 'precip')
     norm = mcolors.BoundaryNorm(clevs, cmap.N)
 
-    # 1. Comparison Plot (3-panel)
+    # Comparison Plot
     fig, axes = plt.subplots(1, 3, figsize=(18, 6.5), subplot_kw={'projection': ccrs.PlateCarree()})
     fig.subplots_adjust(left=0.05, right=0.95, bottom=0.18, top=0.85, wspace=0.05)
-    
     cs = None
     for i in range(3):
         if i < len(all_results):
             res = all_results[i]
             cs = axes[i].contourf(final_lons, final_lats, res['data'], clevs, cmap=cmap, norm=norm, alpha=0.5)
             axes[i].set_title(f'{res["time"].strftime("%Y-%m-%d %H:%M Z")}\n24hr HREF LPMM [in]', fontsize=9, fontweight='bold', pad=8)
-        
         axes[i].coastlines(resolution='10m')
         axes[i].add_feature(cfeature.STATES, linewidth=0.8, edgecolor='black')
         axes[i].add_feature(USCOUNTIES.with_scale('500k'), edgecolor='gray', linewidth=0.4)
         axes[i].set_extent([-122, -114, 32, 37.5])
-
     cbar_ax = fig.add_axes([0.15, 0.1, 0.7, 0.03])
-    cbar = fig.colorbar(cs, cax=cbar_ax, orientation='horizontal', ticks=clevs)
-    cbar.set_label('Precipitation (inches)', fontsize=12, fontweight='bold')
-    
+    fig.colorbar(cs, cax=cbar_ax, orientation='horizontal', label='Precipitation (inches)')
     fig.suptitle(f'24hr HREF LPMM [in] dprog/dt\n{valid_range}', fontsize=16, fontweight='bold', y=0.96)
     plt.savefig(os.path.join(output_folder, 'HREF_LPMM_RUN_COMPARE.png'), dpi=300)
 
-    # 2. Threshold Plot (4-panel) - FIXED AESTHETICS
+    # Threshold Plot
     fig2, ax2 = plt.subplots(2, 2, figsize=(14, 11), subplot_kw={'projection': ccrs.PlateCarree()})
-    
-    thresholds = [3, 6, 9, 12]
     blue_shades = ['#00008B', '#4169E1', '#87CEFA']
     legend_elements = [Line2D([0], [0], marker='o', color='w', label=res['time'].strftime("%Y-%m-%d %H:%M Z"),
                               markerfacecolor=blue_shades[idx], markersize=8) for idx, res in enumerate(all_results)]
-
-    for i, thresh in enumerate(thresholds):
+    for i, thresh in enumerate([3, 6, 9, 12]):
         row, col = divmod(i, 2)
         for j, res in enumerate(all_results):
             m_data = np.ma.masked_less(res['data'], thresh)
             ax2[row, col].contourf(final_lons, final_lats, m_data, cmap=mcolors.ListedColormap([blue_shades[j]]), levels=[thresh, 99], alpha=0.6)
-        
-        # ADDED GEOGRAPHY TO ALL PANELS
         ax2[row, col].coastlines(resolution='10m')
         ax2[row, col].add_feature(cfeature.STATES, linewidth=0.8, edgecolor='black')
         ax2[row, col].add_feature(USCOUNTIES.with_scale('500k'), edgecolor='gray', linewidth=0.3, alpha=0.5)
         ax2[row, col].set_extent([-122, -114, 32, 37.5])
-        
         ax2[row, col].set_title(f'> {thresh} inches', fontsize=12, fontweight='bold')
         ax2[row, col].legend(handles=legend_elements, loc='lower right', title='HREF Run', fontsize=8)
-    
     fig2.subplots_adjust(left=0.05, right=0.95, bottom=0.05, top=0.88, wspace=0.1, hspace=0.2)
     fig2.suptitle(f'24hr HREF LPMM Threshold Compare\n{valid_range}', fontsize=16, fontweight='bold', y=0.96)
     plt.savefig(os.path.join(output_folder, 'HREF_LPMM_THRESHOLD_COMPARE.png'), dpi=300, bbox_inches='tight')
 
+# --- FINAL CLEANUP ---
+clean_up_grib_files(output_folder)
 print("Process Complete.")
