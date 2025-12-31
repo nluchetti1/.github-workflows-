@@ -1,5 +1,5 @@
 import matplotlib
-matplotlib.use('Agg')
+matplotlib.use('Agg')  # Required for GitHub Actions
 import os
 import time
 import numpy as np
@@ -17,7 +17,8 @@ import pytz
 
 # --- 1. DYNAMIC FOLDER SETUP ---
 output_folder = "href_data"
-os.makedirs(output_folder, exist_ok=True)
+if not os.path.exists(output_folder):
+    os.makedirs(output_folder)
 
 # --- 2. DOWNLOAD & UTILITY FUNCTIONS ---
 def download_file(url, save_path, retries=2, delay=10):
@@ -38,6 +39,7 @@ def download_file(url, save_path, retries=2, delay=10):
 def unpack_total_precipitation(grib_path):
     try:
         with pygrib.open(grib_path) as grb_file:
+            # Using GRIB2 keys Category 1, Parameter 8 for Total Precip
             msgs = grb_file.select(parameterCategory=1, parameterNumber=8)
             if msgs:
                 msg = msgs[0]
@@ -53,7 +55,6 @@ def unpack_total_precipitation(grib_path):
 now_utc = datetime.now(pytz.UTC)
 current_hour = now_utc.hour
 base_url = "https://nomads.ncep.noaa.gov/pub/data/nccf/com/href/prod"
-
 date_now = now_utc.strftime('%Y%m%d')
 date_prev = (now_utc - timedelta(days=1)).strftime('%Y%m%d')
 
@@ -61,12 +62,12 @@ if 13 <= current_hour <= 23:
     runs = [{"date": date_now, "hour": "12", "f_range": range(1, 25)},
             {"date": date_now, "hour": "00", "f_range": range(13, 37)},
             {"date": date_prev, "hour": "12", "f_range": range(25, 49)}]
-    valid_title = f"Valid: 12Z {date_now} to 12Z {(now_utc+timedelta(days=1)).strftime('%Y%m%d')}"
+    valid_range = f"Valid: 12Z {date_now} to 12Z {(now_utc+timedelta(days=1)).strftime('%Y%m%d')}"
 else:
     runs = [{"date": date_now, "hour": "00", "f_range": range(1, 25)},
             {"date": date_prev, "hour": "12", "f_range": range(13, 37)},
             {"date": date_prev, "hour": "00", "f_range": range(25, 49)}]
-    valid_title = f"Valid: 00Z {date_now} to 00Z {(now_utc+timedelta(days=1)).strftime('%Y%m%d')}"
+    valid_range = f"Valid: 00Z {date_now} to 00Z {(now_utc+timedelta(days=1)).strftime('%Y%m%d')}"
 
 # --- 4. DATA COLLECTION ---
 all_results = []
@@ -97,38 +98,34 @@ if len(all_results) >= 1:
     cmap = mcolors.ListedColormap(cmap_data, 'precip')
     norm = mcolors.BoundaryNorm(clevs, cmap.N)
 
-    # A: Comparison Plot
-    fig, axes = plt.subplots(1, 3, figsize=(20, 10), subplot_kw={'projection': ccrs.PlateCarree()})
-    fig.subplots_adjust(bottom=0.2, wspace=0.05, top=0.88)
+    # 1. Comparison Plot (3-panel)
+    # layout='constrained' handles suptitle and colorbar spacing automatically
+    fig, axes = plt.subplots(1, 3, figsize=(18, 8), subplot_kw={'projection': ccrs.PlateCarree()}, layout='constrained')
     
     cs = None
     for i in range(3):
         if i < len(all_results):
             res = all_results[i]
             cs = axes[i].contourf(final_lons, final_lats, res['data'], clevs, cmap=cmap, norm=norm, alpha=0.5)
-            axes[i].set_title(f'{res["time"].strftime("%Y-%m-%d %H:%M Z")}\n24hr HREF LPMM [in]', fontsize=12, fontweight='bold')
+            axes[i].set_title(f'{res["time"].strftime("%Y-%m-%d %H:%M Z")}\n24hr HREF LPMM [in]', fontsize=10, fontweight='bold')
         
-        # Consistent aesthetics for all panels
         axes[i].coastlines(resolution='10m')
         axes[i].add_feature(cfeature.STATES, linewidth=0.8, edgecolor='black')
         axes[i].add_feature(USCOUNTIES.with_scale('500k'), edgecolor='gray', linewidth=0.4)
-        axes[i].set_extent([-122, -114, 32, 37])
-    
-    # Shared Colorbar at the bottom
-    cbar_ax = fig.add_axes([0.15, 0.12, 0.7, 0.02])
-    cbar = fig.colorbar(cs, cax=cbar_ax, orientation='horizontal', ticks=clevs)
+        axes[i].set_extent([-122, -114, 32, 37]) # CA Domain
+
+    # Add shared colorbar stealing space from all 3 axes
+    cbar = fig.colorbar(cs, ax=axes, orientation='horizontal', pad=0.08, fraction=0.03, aspect=50)
     cbar.set_label('Precipitation (inches)', fontsize=14, fontweight='bold')
-    fig.suptitle(f'24hr HREF LPMM [in] dprog/dt\n{valid_title}', fontsize=18, fontweight='bold')
+    
+    fig.suptitle(f'24hr HREF LPMM [in] dprog/dt\n{valid_range}', fontsize=16, fontweight='bold')
     plt.savefig(os.path.join(output_folder, 'HREF_LPMM_RUN_COMPARE.png'), dpi=300)
 
-    # B: Threshold / Paintball Plot
+    # 2. Threshold Plot (4-panel)
     fig2, ax2 = plt.subplots(2, 2, figsize=(15, 12), subplot_kw={'projection': ccrs.PlateCarree()})
-    fig2.subplots_adjust(top=0.9, hspace=0.15)
     
     thresholds = [3, 6, 9, 12]
     blue_shades = ['#00008B', '#4169E1', '#87CEFA']
-    
-    # Custom Legend Elements
     legend_elements = [Line2D([0], [0], marker='o', color='w', label=res['time'].strftime("%Y-%m-%d %H:%M Z"),
                               markerfacecolor=blue_shades[idx], markersize=10) for idx, res in enumerate(all_results)]
 
@@ -144,7 +141,9 @@ if len(all_results) >= 1:
         ax2[row, col].set_title(f'> {thresh} inches', fontsize=14, fontweight='bold')
         ax2[row, col].legend(handles=legend_elements, loc='lower right', title='HREF Run', fontsize=9)
     
-    fig2.suptitle(f'24hr HREF LPMM Threshold Compare\n{valid_title}', fontsize=18, fontweight='bold')
+    # Manual spacing to prevent suptitle overlap
+    plt.tight_layout(rect=[0, 0, 1, 0.95], h_pad=3.0, w_pad=2.0)
+    fig2.suptitle(f'24hr HREF LPMM Threshold Compare\n{valid_range}', fontsize=16, fontweight='bold')
     plt.savefig(os.path.join(output_folder, 'HREF_LPMM_THRESHOLD_COMPARE.png'), dpi=300, bbox_inches='tight')
 
 print("Process Complete.")
