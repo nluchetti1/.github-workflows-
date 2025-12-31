@@ -114,7 +114,8 @@ if len(all_results) >= 1:
     for i, res in enumerate(all_results):
         axes[i].contourf(final_lons, final_lats, res['data'], clevs, cmap=cmap, norm=norm, alpha=0.5)
         axes[i].coastlines(); axes[i].add_feature(cfeature.STATES); axes[i].add_feature(USCOUNTIES.with_scale('500k'), edgecolor='gray', linewidth=0.5)
-        axes[i].set_extent([-84.8, -74, 31, 39])
+       # axes[i].set_extent([-84.8, -74, 31, 39])
+        axes[i].set_extent([-122, -114, 32, 37])
         axes[i].set_title(f'Run: {res["time"].strftime("%Y-%m-%d %H:%M Z")}')
     
     fig.suptitle(f'24hr HREF LPMM Run Comparison\n{valid_title}', fontsize=16, fontweight='bold')
@@ -129,7 +130,8 @@ if len(all_results) >= 1:
         for j, res in enumerate(all_results):
             m_data = np.ma.masked_less(res['data'], thresh)
             ax2[row, col].contourf(final_lons, final_lats, m_data, cmap=mcolors.ListedColormap([colors[j]]), levels=[thresh, 99], alpha=0.6)
-        ax2[row, col].coastlines(); ax2[row, col].set_extent([-84.8, -74, 31, 39])
+        #ax2[row, col].coastlines(); ax2[row, col].set_extent([-84.8, -74, 31, 39])
+        ax2[row, col].set_extent([-122, -114, 32, 37])
         ax2[row, col].set_title(f'> {thresh} inches', fontweight='bold')
     
     fig2.suptitle(f'24hr HREF LPMM Threshold Compare\n{valid_title}', fontsize=16, fontweight='bold')
