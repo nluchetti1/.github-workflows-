@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="refresh" content="900">
+    <title>HREF LPMM Dashboard - NC Domain</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0f0f0f; color: #e0e0e0; text-align: center; margin: 0; padding: 20px; }
+        .header { background: #1a1a1a; padding: 20px; border-radius: 10px; margin-bottom: 30px; border: 1px solid #333; }
+        h1 { margin: 0 0 10px 0; color: #fff; }
+        .status-container { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 5px; }
+        .dot { height: 12px; width: 12px; background-color: STATUS_COLOR; border-radius: 50%; display: inline-block; box-shadow: 0 0 8px STATUS_COLOR; }
+        .status-text { color: STATUS_COLOR; font-weight: bold; font-size: 1.1em; }
+        .timestamp { color: #888; font-size: 0.9em; }
+        .noaa-link { display: inline-block; margin-top: 10px; color: #4da6ff; text-decoration: none; font-size: 0.85em; }
+        .noaa-link:hover { text-decoration: underline; }
+        .container { display: flex; flex-wrap: wrap; justify-content: center; gap: 25px; padding-bottom: 40px; }
+        .plot-box { background: #1a1a1a; padding: 15px; border-radius: 12px; border: 1px solid #333; transition: transform 0.2s; }
+        .plot-box:hover { transform: scale(1.01); border-color: #444; }
+        .plot-box h2 { font-size: 1.1em; margin-bottom: 15px; color: #bbb; }
+        img { max-width: 100%; height: auto; border-radius: 6px; border: 1px solid #000; }
+        footer { margin-top: 40px; color: #555; font-size: 0.8em; border-top: 1px solid #222; padding-top: 20px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>HREF LPMM Forecast Dashboard</h1>
+        <div class="status-container">
+            <span class="dot"></span>
+            <span class="status-text">System: SERVER_STATUS</span>
+        </div>
+        <div class="timestamp">Last Model Update: LAST_UPDATED</div>
+        <a href="https://www.nco.ncep.noaa.gov/pmb/nwprod/analysis/" target="_blank" class="noaa-link">🔗 Official NOAA NOMADS Status</a>
+    </div>
+    
+    <div class="container">
+        <div class="plot-box">
+            <h2>24-Hour Comparison (dprog/dt)</h2>
+            <img src="latest_compare.png" alt="Precipitation Comparison">
+        </div>
+        <div class="plot-box">
+            <h2>HREF Probability Thresholds</h2>
+            <img src="latest_threshold.png" alt="Threshold Paintball">
+        </div>
+    </div>
+
+    <footer>
+        NC Domain Map Generation | Auto-Archiving Enabled via Wget<br>
+        Page Refreshes Every 15 Minutes
+    </footer>
+</body>
+</html>
