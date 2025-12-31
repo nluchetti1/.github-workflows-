@@ -2,7 +2,7 @@ name: HREF LPMM Data Fetch
 
 on:
   schedule:
-    - cron: '30 3,17 * * *'
+    - cron: '20 3,15 * * *'
   workflow_dispatch: 
 
 jobs:
