@@ -1,56 +1,49 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>HREF Hodograph Analysis</title>
+    <meta charset="UTF-8">
+    <title>HREF Hodograph Explorer</title>
     <style>
-        body { font-family: sans-serif; background: #111; color: white; text-align: center; }
-        .map-container { position: relative; width: 90%; max-width: 1200px; margin: auto; }
-        #main-map { width: 100%; border: 2px solid #333; border-radius: 8px; }
-        .timeline { display: flex; justify-content: center; gap: 5px; margin-top: 20px; flex-wrap: wrap; }
-        .hour-box {
-            padding: 10px 15px; background: #222; border: 1px solid #444;
-            cursor: pointer; transition: 0.2s; border-radius: 4px; font-size: 0.9em;
+        body { font-family: 'Segoe UI', sans-serif; background: #050505; color: #eee; text-align: center; }
+        .viewer { margin: 20px auto; width: 95%; max-width: 1100px; position: relative; }
+        #display { width: 100%; border: 2px solid #222; border-radius: 10px; }
+        .nav-bar { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; margin-top: 15px; }
+        .btn { 
+            padding: 8px 12px; background: #1a1a1a; border: 1px solid #333; 
+            cursor: crosshair; border-radius: 4px; font-size: 0.8em; transition: 0.1s;
         }
-        .hour-box:hover, .hour-box.active { background: #4da6ff; color: black; font-weight: bold; }
-        .info { margin-bottom: 10px; color: #aaa; }
+        .btn:hover { background: #ffcc00; color: #000; font-weight: bold; transform: scale(1.1); }
+        .legend { margin-top: 20px; font-size: 0.9em; color: #888; }
+        .gold { color: gold; } .p { color: #ff00ff; } .r { color: #ff0000; } .g { color: #00ff00; }
     </style>
 </head>
 <body>
-    <h1>NC Grid-Point Hodograph Explorer</h1>
-    <p class="info">Hover over the hours below to animate the forecast</p>
+    <h2>NC Severe Weather Dynamics (HREF)</h2>
+    <div class="viewer"><img id="display" src="hodo_data/hodo_f01.png"></div>
+    <div class="nav-bar" id="controls"></div>
     
-    <div class="map-container">
-        <img id="main-map" src="hodo_f01.png" alt="Loading Forecast...">
+    <div class="legend">
+        <b>Legend:</b> <span class="p">0-1km</span> | <span class="r">1-3km</span> | <span class="g">3-6km</span> 
+        &nbsp;&nbsp; <span class="gold">↗ 0-6km Shear Vector</span>
     </div>
 
-    <div class="timeline" id="timeline-bar">
-        </div>
-
     <script>
-        const map = document.getElementById('main-map');
-        const timeline = document.getElementById('timeline-bar');
-        const totalHours = 48; // Adjust based on your HREF download
+        const controls = document.getElementById('controls');
+        const display = document.getElementById('display');
+        const hours = 24;
 
-        // Preload images to prevent flickering
-        const images = [];
-        for (let i = 1; i <= totalHours; i++) {
-            const fStr = i.toString().padStart(2, '0');
-            const img = new Image();
-            img.src = `hodo_f${fStr}.png`;
-            images.push(img);
-
-            // Create the hover boxes
-            const box = document.createElement('div');
-            box.className = 'hour-box';
-            box.innerText = `F${fStr}`;
+        for (let i = 1; i <= hours; i++) {
+            const f = i.toString().padStart(2, '0');
+            const imgPath = `hodo_data/hodo_f${f}.png`;
             
-            // The magic: Change image on mouseenter
-            box.onmouseenter = () => {
-                map.src = img.src;
-                document.querySelectorAll('.hour-box').forEach(b => b.classList.remove('active'));
-                box.classList.add('active');
-            };
-            timeline.appendChild(box);
+            // Preload
+            const pre = new Image(); pre.src = imgPath;
+
+            const b = document.createElement('div');
+            b.className = 'btn';
+            b.innerText = `F${f}`;
+            b.onmouseover = () => { display.src = imgPath; };
+            controls.appendChild(b);
         }
     </script>
 </body>
