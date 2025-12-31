@@ -12,6 +12,7 @@ import cartopy.feature as cfeature
 import pandas as pd
 from datetime import datetime, timedelta
 from metpy.plots import USCOUNTIES
+from matplotlib.lines import Line2D
 import pytz
 
 # --- 1. DYNAMIC FOLDER SETUP ---
@@ -35,26 +36,17 @@ def download_file(url, save_path, retries=2, delay=10):
     return False
 
 def unpack_total_precipitation(grib_path):
-    """
-    Improved extraction using GRIB2 keys (Category 1, Parameter 8) 
-    to handle variations in the 'Total precipitation' label.
-    """
     try:
         with pygrib.open(grib_path) as grb_file:
-            # Look for GRIB2 Category 1 (Moisture), Parameter 8 (Total Precip)
-            # This is more robust than string matching 'parameterName'
             msgs = grb_file.select(parameterCategory=1, parameterNumber=8)
             if msgs:
                 msg = msgs[0]
                 return msg.data()
-            
-            # Fallback to searching for 'Total precipitation' in name if keys fail
             msgs = grb_file.select(name='Total precipitation')
             if msgs:
                 return msgs[0].data()
-                
     except Exception as e:
-        print(f"Unpack error in {grib_path}: {e}")
+        print(f"Unpack error: {e}")
     return None, None, None
 
 # --- 3. TIMING & RUN SELECTION ---
@@ -88,14 +80,12 @@ for idx, run in enumerate(runs):
         f_str = f"{f_hour:02d}"
         url = f"{base_url}/href.{run['date']}/ensprod/href.t{run['hour']}z.conus.lpmm.f{f_str}.grib2"
         temp_path = os.path.join(output_folder, f"temp_{idx}_{f_str}.grib2")
-        
         if download_file(url, temp_path):
             data, lats, lons = unpack_total_precipitation(temp_path)
             if data is not None:
                 hourly_data.append(data * mm_to_inch)
                 final_lats, final_lons = lats, lons
             if os.path.exists(temp_path): os.remove(temp_path)
-    
     if hourly_data:
         all_results.append({"data": np.sum(hourly_data, axis=0), 
                            "time": pd.to_datetime(run['date'] + ' ' + run['hour'] + 'Z')})
@@ -107,34 +97,54 @@ if len(all_results) >= 1:
     cmap = mcolors.ListedColormap(cmap_data, 'precip')
     norm = mcolors.BoundaryNorm(clevs, cmap.N)
 
-    # Comparison Plot
-    fig, axes = plt.subplots(1, len(all_results), figsize=(6*len(all_results), 8), subplot_kw={'projection': ccrs.PlateCarree()})
-    if len(all_results) == 1: axes = [axes]
+    # A: Comparison Plot
+    fig, axes = plt.subplots(1, 3, figsize=(20, 10), subplot_kw={'projection': ccrs.PlateCarree()})
+    fig.subplots_adjust(bottom=0.2, wspace=0.05, top=0.88)
     
-    for i, res in enumerate(all_results):
-        axes[i].contourf(final_lons, final_lats, res['data'], clevs, cmap=cmap, norm=norm, alpha=0.5)
-        axes[i].coastlines(); axes[i].add_feature(cfeature.STATES); axes[i].add_feature(USCOUNTIES.with_scale('500k'), edgecolor='gray', linewidth=0.5)
-       # axes[i].set_extent([-84.8, -74, 31, 39])
+    cs = None
+    for i in range(3):
+        if i < len(all_results):
+            res = all_results[i]
+            cs = axes[i].contourf(final_lons, final_lats, res['data'], clevs, cmap=cmap, norm=norm, alpha=0.5)
+            axes[i].set_title(f'{res["time"].strftime("%Y-%m-%d %H:%M Z")}\n24hr HREF LPMM [in]', fontsize=12, fontweight='bold')
+        
+        # Consistent aesthetics for all panels
+        axes[i].coastlines(resolution='10m')
+        axes[i].add_feature(cfeature.STATES, linewidth=0.8, edgecolor='black')
+        axes[i].add_feature(USCOUNTIES.with_scale('500k'), edgecolor='gray', linewidth=0.4)
         axes[i].set_extent([-122, -114, 32, 37])
-        axes[i].set_title(f'Run: {res["time"].strftime("%Y-%m-%d %H:%M Z")}')
     
-    fig.suptitle(f'24hr HREF LPMM Run Comparison\n{valid_title}', fontsize=16, fontweight='bold')
+    # Shared Colorbar at the bottom
+    cbar_ax = fig.add_axes([0.15, 0.12, 0.7, 0.02])
+    cbar = fig.colorbar(cs, cax=cbar_ax, orientation='horizontal', ticks=clevs)
+    cbar.set_label('Precipitation (inches)', fontsize=14, fontweight='bold')
+    fig.suptitle(f'24hr HREF LPMM [in] dprog/dt\n{valid_title}', fontsize=18, fontweight='bold')
     plt.savefig(os.path.join(output_folder, 'HREF_LPMM_RUN_COMPARE.png'), dpi=300)
 
-    # Threshold Plot
+    # B: Threshold / Paintball Plot
     fig2, ax2 = plt.subplots(2, 2, figsize=(15, 12), subplot_kw={'projection': ccrs.PlateCarree()})
+    fig2.subplots_adjust(top=0.9, hspace=0.15)
+    
     thresholds = [3, 6, 9, 12]
-    colors = ['#00008B', '#4169E1', '#87CEFA']
+    blue_shades = ['#00008B', '#4169E1', '#87CEFA']
+    
+    # Custom Legend Elements
+    legend_elements = [Line2D([0], [0], marker='o', color='w', label=res['time'].strftime("%Y-%m-%d %H:%M Z"),
+                              markerfacecolor=blue_shades[idx], markersize=10) for idx, res in enumerate(all_results)]
+
     for i, thresh in enumerate(thresholds):
         row, col = divmod(i, 2)
         for j, res in enumerate(all_results):
             m_data = np.ma.masked_less(res['data'], thresh)
-            ax2[row, col].contourf(final_lons, final_lats, m_data, cmap=mcolors.ListedColormap([colors[j]]), levels=[thresh, 99], alpha=0.6)
-        #ax2[row, col].coastlines(); ax2[row, col].set_extent([-84.8, -74, 31, 39])
+            ax2[row, col].contourf(final_lons, final_lats, m_data, cmap=mcolors.ListedColormap([blue_shades[j]]), levels=[thresh, 99], alpha=0.6)
+        
+        ax2[row, col].coastlines(resolution='10m')
+        ax2[row, col].add_feature(cfeature.STATES, linewidth=0.8, edgecolor='black')
         ax2[row, col].set_extent([-122, -114, 32, 37])
-        ax2[row, col].set_title(f'> {thresh} inches', fontweight='bold')
+        ax2[row, col].set_title(f'> {thresh} inches', fontsize=14, fontweight='bold')
+        ax2[row, col].legend(handles=legend_elements, loc='lower right', title='HREF Run', fontsize=9)
     
-    fig2.suptitle(f'24hr HREF LPMM Threshold Compare\n{valid_title}', fontsize=16, fontweight='bold')
+    fig2.suptitle(f'24hr HREF LPMM Threshold Compare\n{valid_title}', fontsize=18, fontweight='bold')
     plt.savefig(os.path.join(output_folder, 'HREF_LPMM_THRESHOLD_COMPARE.png'), dpi=300, bbox_inches='tight')
 
 print("Process Complete.")
