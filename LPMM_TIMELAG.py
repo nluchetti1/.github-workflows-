@@ -1,5 +1,5 @@
 import matplotlib
-matplotlib.use('Agg')  # Required for GitHub Actions
+matplotlib.use('Agg')
 import os
 import time
 import numpy as np
@@ -39,7 +39,6 @@ def download_file(url, save_path, retries=2, delay=10):
 def unpack_total_precipitation(grib_path):
     try:
         with pygrib.open(grib_path) as grb_file:
-            # Using GRIB2 keys Category 1, Parameter 8 for Total Precip
             msgs = grb_file.select(parameterCategory=1, parameterNumber=8)
             if msgs:
                 msg = msgs[0]
@@ -99,35 +98,40 @@ if len(all_results) >= 1:
     norm = mcolors.BoundaryNorm(clevs, cmap.N)
 
     # 1. Comparison Plot (3-panel)
-    # layout='constrained' handles suptitle and colorbar spacing automatically
-    fig, axes = plt.subplots(1, 3, figsize=(18, 8), subplot_kw={'projection': ccrs.PlateCarree()}, layout='constrained')
+    # Reducing figsize height and adjusting subplots_adjust to kill top whitespace
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6), subplot_kw={'projection': ccrs.PlateCarree()})
+    
+    # Manual adjustment gives better control over the 'big gap' than constrained_layout sometimes does
+    fig.subplots_adjust(left=0.05, right=0.95, bottom=0.15, top=0.82, wspace=0.05)
     
     cs = None
     for i in range(3):
         if i < len(all_results):
             res = all_results[i]
             cs = axes[i].contourf(final_lons, final_lats, res['data'], clevs, cmap=cmap, norm=norm, alpha=0.5)
-            axes[i].set_title(f'{res["time"].strftime("%Y-%m-%d %H:%M Z")}\n24hr HREF LPMM [in]', fontsize=10, fontweight='bold')
+            axes[i].set_title(f'{res["time"].strftime("%Y-%m-%d %H:%M Z")}\n24hr HREF LPMM [in]', fontsize=9, fontweight='bold', pad=10)
         
         axes[i].coastlines(resolution='10m')
         axes[i].add_feature(cfeature.STATES, linewidth=0.8, edgecolor='black')
         axes[i].add_feature(USCOUNTIES.with_scale('500k'), edgecolor='gray', linewidth=0.4)
-        axes[i].set_extent([-122, -114, 32, 37]) # CA Domain
+        axes[i].set_extent([-122, -114, 32, 37])
 
-    # Add shared colorbar stealing space from all 3 axes
-    cbar = fig.colorbar(cs, ax=axes, orientation='horizontal', pad=0.08, fraction=0.03, aspect=50)
-    cbar.set_label('Precipitation (inches)', fontsize=14, fontweight='bold')
+    # Colorbar positioning
+    cbar_ax = fig.add_axes([0.15, 0.08, 0.7, 0.03])
+    cbar = fig.colorbar(cs, cax=cbar_ax, orientation='horizontal', ticks=clevs)
+    cbar.set_label('Precipitation (inches)', fontsize=12, fontweight='bold')
     
-    fig.suptitle(f'24hr HREF LPMM [in] dprog/dt\n{valid_range}', fontsize=16, fontweight='bold')
+    fig.suptitle(f'24hr HREF LPMM [in] dprog/dt\n{valid_range}', fontsize=16, fontweight='bold', y=0.95)
     plt.savefig(os.path.join(output_folder, 'HREF_LPMM_RUN_COMPARE.png'), dpi=300)
 
     # 2. Threshold Plot (4-panel)
-    fig2, ax2 = plt.subplots(2, 2, figsize=(15, 12), subplot_kw={'projection': ccrs.PlateCarree()})
+    # Adjusting figsize to (12, 12) to make it more square and less stretched horizontally
+    fig2, ax2 = plt.subplots(2, 2, figsize=(12, 12), subplot_kw={'projection': ccrs.PlateCarree()})
     
     thresholds = [3, 6, 9, 12]
     blue_shades = ['#00008B', '#4169E1', '#87CEFA']
     legend_elements = [Line2D([0], [0], marker='o', color='w', label=res['time'].strftime("%Y-%m-%d %H:%M Z"),
-                              markerfacecolor=blue_shades[idx], markersize=10) for idx, res in enumerate(all_results)]
+                              markerfacecolor=blue_shades[idx], markersize=8) for idx, res in enumerate(all_results)]
 
     for i, thresh in enumerate(thresholds):
         row, col = divmod(i, 2)
@@ -138,12 +142,12 @@ if len(all_results) >= 1:
         ax2[row, col].coastlines(resolution='10m')
         ax2[row, col].add_feature(cfeature.STATES, linewidth=0.8, edgecolor='black')
         ax2[row, col].set_extent([-122, -114, 32, 37])
-        ax2[row, col].set_title(f'> {thresh} inches', fontsize=14, fontweight='bold')
-        ax2[row, col].legend(handles=legend_elements, loc='lower right', title='HREF Run', fontsize=9)
+        ax2[row, col].set_title(f'> {thresh} inches', fontsize=12, fontweight='bold')
+        ax2[row, col].legend(handles=legend_elements, loc='lower right', title='HREF Run', fontsize=8)
     
-    # Manual spacing to prevent suptitle overlap
-    plt.tight_layout(rect=[0, 0, 1, 0.95], h_pad=3.0, w_pad=2.0)
-    fig2.suptitle(f'24hr HREF LPMM Threshold Compare\n{valid_range}', fontsize=16, fontweight='bold')
+    # Using subplots_adjust here instead of tight_layout for finer control over the suptitle gap
+    fig2.subplots_adjust(left=0.05, right=0.95, bottom=0.05, top=0.90, wspace=0.1, hspace=0.15)
+    fig2.suptitle(f'24hr HREF LPMM Threshold Compare\n{valid_range}', fontsize=16, fontweight='bold', y=0.96)
     plt.savefig(os.path.join(output_folder, 'HREF_LPMM_THRESHOLD_COMPARE.png'), dpi=300, bbox_inches='tight')
 
 print("Process Complete.")
