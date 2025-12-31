@@ -98,35 +98,30 @@ if len(all_results) >= 1:
     norm = mcolors.BoundaryNorm(clevs, cmap.N)
 
     # 1. Comparison Plot (3-panel)
-    # Reducing figsize height and adjusting subplots_adjust to kill top whitespace
-    fig, axes = plt.subplots(1, 3, figsize=(18, 6), subplot_kw={'projection': ccrs.PlateCarree()})
-    
-    # Manual adjustment gives better control over the 'big gap' than constrained_layout sometimes does
-    fig.subplots_adjust(left=0.05, right=0.95, bottom=0.15, top=0.82, wspace=0.05)
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6.5), subplot_kw={'projection': ccrs.PlateCarree()})
+    fig.subplots_adjust(left=0.05, right=0.95, bottom=0.18, top=0.85, wspace=0.05)
     
     cs = None
     for i in range(3):
         if i < len(all_results):
             res = all_results[i]
             cs = axes[i].contourf(final_lons, final_lats, res['data'], clevs, cmap=cmap, norm=norm, alpha=0.5)
-            axes[i].set_title(f'{res["time"].strftime("%Y-%m-%d %H:%M Z")}\n24hr HREF LPMM [in]', fontsize=9, fontweight='bold', pad=10)
+            axes[i].set_title(f'{res["time"].strftime("%Y-%m-%d %H:%M Z")}\n24hr HREF LPMM [in]', fontsize=9, fontweight='bold', pad=8)
         
         axes[i].coastlines(resolution='10m')
         axes[i].add_feature(cfeature.STATES, linewidth=0.8, edgecolor='black')
         axes[i].add_feature(USCOUNTIES.with_scale('500k'), edgecolor='gray', linewidth=0.4)
-        axes[i].set_extent([-122, -114, 32, 37])
+        axes[i].set_extent([-122, -114, 32, 37.5])
 
-    # Colorbar positioning
-    cbar_ax = fig.add_axes([0.15, 0.08, 0.7, 0.03])
+    cbar_ax = fig.add_axes([0.15, 0.1, 0.7, 0.03])
     cbar = fig.colorbar(cs, cax=cbar_ax, orientation='horizontal', ticks=clevs)
     cbar.set_label('Precipitation (inches)', fontsize=12, fontweight='bold')
     
-    fig.suptitle(f'24hr HREF LPMM [in] dprog/dt\n{valid_range}', fontsize=16, fontweight='bold', y=0.95)
+    fig.suptitle(f'24hr HREF LPMM [in] dprog/dt\n{valid_range}', fontsize=16, fontweight='bold', y=0.96)
     plt.savefig(os.path.join(output_folder, 'HREF_LPMM_RUN_COMPARE.png'), dpi=300)
 
-    # 2. Threshold Plot (4-panel)
-    # Adjusting figsize to (12, 12) to make it more square and less stretched horizontally
-    fig2, ax2 = plt.subplots(2, 2, figsize=(12, 12), subplot_kw={'projection': ccrs.PlateCarree()})
+    # 2. Threshold Plot (4-panel) - FIXED AESTHETICS
+    fig2, ax2 = plt.subplots(2, 2, figsize=(14, 11), subplot_kw={'projection': ccrs.PlateCarree()})
     
     thresholds = [3, 6, 9, 12]
     blue_shades = ['#00008B', '#4169E1', '#87CEFA']
@@ -139,14 +134,16 @@ if len(all_results) >= 1:
             m_data = np.ma.masked_less(res['data'], thresh)
             ax2[row, col].contourf(final_lons, final_lats, m_data, cmap=mcolors.ListedColormap([blue_shades[j]]), levels=[thresh, 99], alpha=0.6)
         
+        # ADDED GEOGRAPHY TO ALL PANELS
         ax2[row, col].coastlines(resolution='10m')
         ax2[row, col].add_feature(cfeature.STATES, linewidth=0.8, edgecolor='black')
-        ax2[row, col].set_extent([-122, -114, 32, 37])
+        ax2[row, col].add_feature(USCOUNTIES.with_scale('500k'), edgecolor='gray', linewidth=0.3, alpha=0.5)
+        ax2[row, col].set_extent([-122, -114, 32, 37.5])
+        
         ax2[row, col].set_title(f'> {thresh} inches', fontsize=12, fontweight='bold')
         ax2[row, col].legend(handles=legend_elements, loc='lower right', title='HREF Run', fontsize=8)
     
-    # Using subplots_adjust here instead of tight_layout for finer control over the suptitle gap
-    fig2.subplots_adjust(left=0.05, right=0.95, bottom=0.05, top=0.90, wspace=0.1, hspace=0.15)
+    fig2.subplots_adjust(left=0.05, right=0.95, bottom=0.05, top=0.88, wspace=0.1, hspace=0.2)
     fig2.suptitle(f'24hr HREF LPMM Threshold Compare\n{valid_range}', fontsize=16, fontweight='bold', y=0.96)
     plt.savefig(os.path.join(output_folder, 'HREF_LPMM_THRESHOLD_COMPARE.png'), dpi=300, bbox_inches='tight')
 
