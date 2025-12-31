@@ -2,14 +2,17 @@ name: HREF LPMM Data Fetch
 
 on:
   schedule:
-    - cron: '15 5,17 * * *'
+    # Runs at 03:30 and 15:30 UTC
+    - cron: '30 3,15 * * *'
   workflow_dispatch: 
 
 jobs:
   run-weather-script:
     runs-on: ubuntu-latest
+    
     permissions:
-      contents: write # Needed for deploying to GitHub Pages
+      contents: write
+      
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -34,21 +37,31 @@ jobs:
           HOUR=$(date -u +%H)
           if [ "$HOUR" -lt 12 ]; then RUN_HOUR="00"; else RUN_HOUR="12"; fi
           URL="https://nomads.ncep.noaa.gov/pub/data/nccf/com/href/prod/href.${DATE}/ensprod/href.t${RUN_HOUR}z.conus.lpmm.f01.grib2"
+          
+          echo "Looking for: $URL"
           for i in {1..12}; do
-            if curl --output /dev/null --silent --head --fail "$URL"; then exit 0; fi
+            if curl --output /dev/null --silent --head --fail "$URL"; then
+              echo "Data is ready!"
+              exit 0
+            fi
+            echo "Waiting 5 minutes... (Attempt $i/12)"
             sleep 300
           done
+          echo "Timeout: Data not found on NOMADS."
           exit 1
 
       - name: Run HREF Script
         run: python LPMM_TIMELAG.py
 
       - name: Deploy to GitHub Pages
+        if: success()
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./href_data
-          force_orphan: true # Keeps only newest files
+          force_orphan: true 
+          user_name: 'github-actions[bot]'
+          user_email: 'github-actions[bot]@users.noreply.github.com'
 
       - name: Automated Cleanup
         if: always() 
