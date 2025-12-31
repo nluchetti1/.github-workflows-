@@ -21,8 +21,8 @@ output_folder = "href_data"
 os.makedirs(output_folder, exist_ok=True)
 
 # --- 2. DOWNLOAD & UTILITY FUNCTIONS ---
-def download_file(url, save_path, retries=2, delay=10):
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/87.0.4280.88 Safari/537.36"}
+def download_file(url, save_path):
+    headers = {"User-Agent": "Mozilla/5.0"}
     try:
         response = requests.get(url, headers=headers, timeout=30)
         if response.status_code == 200:
@@ -30,7 +30,7 @@ def download_file(url, save_path, retries=2, delay=10):
                 file.write(response.content)
             return True
     except Exception as e:
-        print(f"Error downloading {url}: {e}")
+        print(f"Error: {e}")
     return False
 
 def unpack_total_precipitation(grib_path):
@@ -38,19 +38,16 @@ def unpack_total_precipitation(grib_path):
         with pygrib.open(grib_path) as grb_file:
             msgs = grb_file.select(parameterCategory=1, parameterNumber=8)
             if msgs:
-                return msgs[0].data()
+                msg = msgs[0]
+                # EXPLICITLY get lats and lons to fix blank geography
+                data = msg.values
+                lats, lons = msg.latlons()
+                return data, lats, lons
     except Exception:
-        return None, None, None
+        pass
+    return None, None, None
 
-def clean_up_grib_files(directory):
-    files = glob.glob(os.path.join(directory, "*.grib2"))
-    for f in files:
-        try:
-            os.remove(f)
-        except:
-            pass
-
-# --- 3. TIMING & RUN SELECTION ---
+# --- 3. TIMING & RUN SELECTION (NC Domain) ---
 now_utc = datetime.now(pytz.UTC)
 current_hour = now_utc.hour
 base_url = "https://nomads.ncep.noaa.gov/pub/data/nccf/com/href/prod"
@@ -105,14 +102,17 @@ if len(all_results) >= 1:
         if i < len(all_results):
             res = all_results[i]
             cs = axes[i].contourf(final_lons, final_lats, res['data'], clevs, cmap=cmap, norm=norm, alpha=0.5)
-            axes[i].set_title(f'{res["time"].strftime("%Y-%m-%d %H:%M Z")}\n24hr HREF LPMM [in]', fontsize=10, fontweight='bold')
-        axes[i].add_feature(cfeature.STATES, linewidth=0.8); axes[i].add_feature(USCOUNTIES.with_scale('500k'), edgecolor='gray', linewidth=0.4)
+            axes[i].set_title(f'{res["time"].strftime("%Y-%m-%d %H:%M Z")}\n24hr HREF LPMM [in]', fontsize=10, fontweight='bold', pad=8)
+        axes[i].add_feature(cfeature.STATES, linewidth=0.8, edgecolor='black')
+        axes[i].add_feature(USCOUNTIES.with_scale('500k'), edgecolor='gray', linewidth=0.4)
         axes[i].set_extent([-84.8, -74, 31, 39])
     
     cbar_ax = fig.add_axes([0.15, 0.12, 0.7, 0.03])
     cbar = fig.colorbar(cs, cax=cbar_ax, orientation='horizontal', ticks=clevs)
-    cbar.ax.tick_params(labelsize=11); cbar.set_label('Precipitation (inches)', fontsize=15, fontweight='bold')
-    plt.savefig(os.path.join(output_folder, 'latest_compare.png'), dpi=300) # STATIC NAME
+    cbar.ax.tick_params(labelsize=11)
+    cbar.set_label('Precipitation (inches)', fontsize=15, fontweight='bold')
+    fig.suptitle(f'24hr HREF LPMM [in] dprog/dt\n{valid_range}', fontsize=16, fontweight='bold', y=0.96)
+    plt.savefig(os.path.join(output_folder, 'latest_compare.png'), dpi=300)
 
     # Threshold Plot
     fig2, ax2 = plt.subplots(2, 2, figsize=(14, 11), subplot_kw={'projection': ccrs.PlateCarree()})
@@ -123,8 +123,13 @@ if len(all_results) >= 1:
         for j, res in enumerate(all_results):
             m_data = np.ma.masked_less(res['data'], thresh)
             ax2[row, col].contourf(final_lons, final_lats, m_data, cmap=mcolors.ListedColormap([blue_shades[j]]), levels=[thresh, 99], alpha=0.6)
-        ax2[row, col].add_feature(cfeature.STATES); ax2[row, col].set_extent([-84.8, -74, 31, 39])
-        ax2[row, col].legend(handles=legend_elements, loc='lower right', fontsize=8)
-    plt.savefig(os.path.join(output_folder, 'latest_threshold.png'), dpi=300) # STATIC NAME
+        ax2[row, col].add_feature(cfeature.STATES, linewidth=0.8, edgecolor='black')
+        ax2[row, col].add_feature(USCOUNTIES.with_scale('500k'), edgecolor='gray', linewidth=0.3)
+        ax2[row, col].set_extent([-84.8, -74, 31, 39])
+        ax2[row, col].set_title(f'> {thresh} inches', fontsize=12, fontweight='bold')
+        ax2[row, col].legend(handles=legend_elements, loc='lower right', title='HREF Run', fontsize=8)
+    fig2.subplots_adjust(left=0.05, right=0.95, bottom=0.05, top=0.88, wspace=0.1, hspace=0.2)
+    fig2.suptitle(f'24hr HREF LPMM Threshold Compare\n{valid_range}', fontsize=16, fontweight='bold', y=0.96)
+    plt.savefig(os.path.join(output_folder, 'latest_threshold.png'), dpi=300, bbox_inches='tight')
 
-clean_up_grib_files(output_folder)
+print("Process Complete.")
