@@ -1,0 +1,40 @@
+name: HREF LPMM Data Fetch
+
+on:
+  schedule:
+    # Runs at 04:30 UTC (for the 00Z run) and 16:30 UTC (for the 12Z run)
+    - cron: '30 4,16 * * *'
+  workflow_dispatch: # Allows you to run it manually for testing
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgeos-dev libproj-dev proj-bin libeccodes-dev
+
+      - name: Install Python Libraries
+        run: |
+          pip install numpy pandas requests matplotlib cartopy pygrib metpy netCDF4 pytz
+
+      - name: Run HREF Script
+        run: python LPMM_TIMELAG.py
+        env:
+          # If your script needs specific environment variables, add them here
+          PYTHONPATH: .
+
+      - name: Upload Plots as Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: href-plots
+          path: href_data/*.png # Adjust this to where your script saves images
