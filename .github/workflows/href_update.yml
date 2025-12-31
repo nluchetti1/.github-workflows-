@@ -2,16 +2,14 @@ name: HREF LPMM Data Fetch
 
 on:
   schedule:
-    # Runs at 03:30 and 15:30 UTC
-    - cron: '30 3,15 * * *'
+    - cron: '30 3,17 * * *'
   workflow_dispatch: 
 
 jobs:
   run-weather-script:
     runs-on: ubuntu-latest
-    
     permissions:
-      contents: write # Needed for Pages deployment
+      contents: write
       
     steps:
       - name: Checkout Code
@@ -32,42 +30,56 @@ jobs:
           pip install numpy pandas requests matplotlib cartopy pygrib metpy netCDF4 pytz
 
       - name: Wait for NOMADS Data
+        id: nomads_check
         run: |
           DATE=$(date -u +%Y%m%d)
           HOUR=$(date -u +%H)
           if [ "$HOUR" -lt 12 ]; then RUN_HOUR="00"; else RUN_HOUR="12"; fi
           URL="https://nomads.ncep.noaa.gov/pub/data/nccf/com/href/prod/href.${DATE}/ensprod/href.t${RUN_HOUR}z.conus.lpmm.f01.grib2"
           
-          echo "Looking for: $URL"
+          echo "Checking NOMADS: $URL"
           for i in {1..12}; do
             if curl --output /dev/null --silent --head --fail "$URL"; then
-              echo "Data is ready!"
+              echo "Data Ready!"
+              echo "status=success" >> $GITHUB_OUTPUT
               exit 0
             fi
-            echo "Waiting 5 minutes... (Attempt $i/12)"
+            echo "Attempt $i/12: Waiting 5 mins..."
             sleep 300
           done
+          echo "status=failure" >> $GITHUB_OUTPUT
           exit 1
 
       - name: Run HREF Script
         run: python LPMM_TIMELAG.py
 
-      - name: Prepare Dashboard with Timestamp
+      - name: Prepare Dashboard
+        if: always()
         run: |
-          # Create a dynamic timestamp
           TIMESTAMP=$(date -u +'%Y-%m-%d %H:%M UTC')
-          # Inject the timestamp into the HTML file before moving it
+          
+          if [[ "${{ steps.nomads_check.outputs.status }}" == "success" ]]; then
+            STATUS="OPERATIONAL"
+            COLOR="#00ff00"
+          else
+            STATUS="NOMADS DATA TIMEOUT"
+            COLOR="#ff4d4d"
+          fi
+          
+          # Inject status and time into HTML
           sed -i "s/LAST_UPDATED/$TIMESTAMP/g" index.html
-          # Copy the dashboard into the output folder for deployment
+          sed -i "s/SERVER_STATUS/$STATUS/g" index.html
+          sed -i "s/STATUS_COLOR/$COLOR/g" index.html
+          
+          # Copy to deploy folder
           cp index.html ./href_data/
 
       - name: Deploy to GitHub Pages
-        if: success()
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./href_data
-          force_orphan: true # Prevents git lock errors
+          force_orphan: true
           user_name: 'github-actions[bot]'
           user_email: 'github-actions[bot]@users.noreply.github.com'
 
