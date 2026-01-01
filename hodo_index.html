@@ -2,49 +2,99 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>HREF Hodograph Explorer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HREF Dynamics Explorer</title>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #050505; color: #eee; text-align: center; }
-        .viewer { margin: 20px auto; width: 95%; max-width: 1100px; position: relative; }
-        #display { width: 100%; border: 2px solid #222; border-radius: 10px; }
-        .nav-bar { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; margin-top: 15px; }
-        .btn { 
-            padding: 8px 12px; background: #1a1a1a; border: 1px solid #333; 
-            cursor: crosshair; border-radius: 4px; font-size: 0.8em; transition: 0.1s;
-        }
-        .btn:hover { background: #ffcc00; color: #000; font-weight: bold; transform: scale(1.1); }
-        .legend { margin-top: 20px; font-size: 0.9em; color: #888; }
-        .gold { color: gold; } .p { color: #ff00ff; } .r { color: #ff0000; } .g { color: #00ff00; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #0a0a0a; color: #e0e0e0; text-align: center; margin: 0; padding: 20px; }
+        h1 { color: #fff; margin-bottom: 5px; }
+        .subtitle { color: #888; margin-bottom: 20px; font-size: 0.9em; }
+        
+        /* Navigation Styles */
+        nav { margin-bottom: 30px; border-bottom: 1px solid #333; padding-bottom: 15px; }
+        nav a { color: #4da6ff; text-decoration: none; margin: 0 15px; font-weight: bold; }
+        nav a:hover { color: #fff; }
+
+        /* Viewer Styles */
+        .viewer-container { width: 95%; max-width: 1100px; margin: 0 auto; background: #111; border: 2px solid #222; border-radius: 12px; padding: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        #main-map { width: 100%; border-radius: 6px; display: block; }
+
+        /* Timeline Styles */
+        .timeline { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; margin-top: 20px; }
+        .hour-box { padding: 8px 12px; background: #1a1a1a; border: 1px solid #333; cursor: crosshair; border-radius: 4px; font-size: 0.85em; transition: all 0.15s ease; color: #aaa; }
+        .hour-box:hover { background: #ffcc00; color: #000; font-weight: bold; transform: scale(1.1); z-index: 10; }
+        .active-box { border-color: #ffcc00; color: #ffcc00; }
+
+        /* Legend Styles */
+        .legend { margin-top: 25px; padding: 15px; background: #111; border-radius: 8px; display: inline-block; font-size: 0.9em; border: 1px solid #222; }
+        .color-key { font-weight: bold; padding: 2px 6px; border-radius: 3px; }
+        .purple { color: #ff00ff; }
+        .red { color: #ff0000; }
+        .green { color: #00ff00; }
+        .gold { color: #ffcc00; }
     </style>
 </head>
 <body>
-    <h2>NC Severe Weather Dynamics (HREF)</h2>
-    <div class="viewer"><img id="display" src="hodo_data/hodo_f01.png"></div>
-    <div class="nav-bar" id="controls"></div>
-    
+
+    <nav>
+        <a href="index.html">🌧️ Rainfall Dashboard</a>
+        <a href="hodo_index.html" style="color: #fff; pointer-events: none;">🌪️ Hodograph Dynamics</a>
+    </nav>
+
+    <h1>NC Severe Weather Dynamics</h1>
+    <div class="subtitle">HREF Ensemble Mean | 0-6km Shear & Grid-Point Hodographs</div>
+
+    <div class="viewer-container">
+        <img id="main-map" src="hodo_data/hodo_f01.png" alt="Forecast Loading...">
+    </div>
+
+    <div class="timeline" id="timeline">
+        </div>
+
     <div class="legend">
-        <b>Legend:</b> <span class="p">0-1km</span> | <span class="r">1-3km</span> | <span class="g">3-6km</span> 
-        &nbsp;&nbsp; <span class="gold">↗ 0-6km Shear Vector</span>
+        <b>Map Key:</b> 
+        Background: <span class="color-key">SBCAPE (magma)</span> | 
+        <span class="gold">↗ 0-6km Bulk Shear Vector</span><br>
+        <b>Hodograph Levels:</b> 
+        <span class="purple">0-1km AGL</span> | 
+        <span class="red">1-3km AGL</span> | 
+        <span class="green">3-6km AGL</span>
     </div>
 
     <script>
-        const controls = document.getElementById('controls');
-        const display = document.getElementById('display');
-        const hours = 24;
+        const timeline = document.getElementById('timeline');
+        const mapImg = document.getElementById('main-map');
+        const forecastHours = 24;
 
-        for (let i = 1; i <= hours; i++) {
-            const f = i.toString().padStart(2, '0');
-            const imgPath = `hodo_data/hodo_f${f}.png`;
+        // Preload all images to ensure the "hover" effect is instant
+        const preloadedImages = [];
+        
+        for (let i = 1; i <= forecastHours; i++) {
+            const fStr = i.toString().padStart(2, '0');
+            const imgPath = `hodo_data/hodo_f${fStr}.png`;
             
-            // Preload
-            const pre = new Image(); pre.src = imgPath;
+            // Start the browser pre-loading the asset
+            const img = new Image();
+            img.src = imgPath;
+            preloadedImages.push(img);
 
-            const b = document.createElement('div');
-            b.className = 'btn';
-            b.innerText = `F${f}`;
-            b.onmouseover = () => { display.src = imgPath; };
-            controls.appendChild(b);
+            // Create the hover button for each hour
+            const box = document.createElement('div');
+            box.className = 'hour-box';
+            box.innerText = `F${fStr}`;
+            
+            // Change image on mouseenter (hover)
+            box.onmouseenter = function() {
+                mapImg.src = imgPath;
+                // Highlight active box
+                document.querySelectorAll('.hour-box').forEach(el => el.classList.remove('active-box'));
+                box.classList.add('active-box');
+            };
+
+            timeline.appendChild(box);
         }
+
+        // Set F01 as active by default
+        timeline.firstChild.classList.add('active-box');
     </script>
 </body>
 </html>
