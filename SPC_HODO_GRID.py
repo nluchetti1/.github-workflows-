@@ -8,6 +8,7 @@ from metpy.units import units
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from datetime import datetime, timedelta
 import pytz
+import shutil
 
 # --- CONFIGURATION ---
 now = datetime.now(pytz.UTC)
@@ -16,6 +17,10 @@ CYCLE = "00"
 START_TIME = datetime.strptime(f"{DATE_STR}{CYCLE}", "%Y%m%d%H").replace(tzinfo=pytz.UTC)
 EXTENT = [-92.0, -74.0, 24.5, 38.5] 
 OUTPUT_DIR = "hodo_data"
+
+# FORCE CLEANUP: Delete old folder to ensure new files are actually new
+if os.path.exists(OUTPUT_DIR):
+    shutil.rmtree(OUTPUT_DIR)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 def process_hour(f_hour):
@@ -24,25 +29,25 @@ def process_hour(f_hour):
     time_label = valid_time.strftime('%m/%d/%Y %H:%M UTC')
     
     url = f"https://nomads.ncep.noaa.gov/pub/data/nccf/com/href/prod/href.{DATE_STR}/ensprod/href.t{CYCLE}z.conus.mean.f{f_str}.grib2"
-    
-    print(f">>> PROCESSING F{f_str} | {time_label} <<<")
+    print(f">>> STARTING F{f_str}...")
+
     try:
         r = requests.get(url, timeout=60)
-        if r.status_code != 200: return
         with open("temp.grib2", "wb") as f: f.write(r.content)
         grbs = pygrib.open("temp.grib2")
     except Exception as e:
-        print(f"Download Error: {e}")
-        return
+        print(f"Download Failed: {e}"); return
 
     # 1. DATA EXTRACTION
     try:
-        cape = grbs.select(shortName='cape', level=0)[0].values
-        lats, lons = grbs.select(shortName='cape', level=0)[0].latlons()
+        cape_msg = grbs.select(shortName='cape', level=0)[0]
+        cape = cape_msg.values
+        lats, lons = cape_msg.latlons()
         h_sfc = grbs.select(shortName='gh', level=0)[0].values * units('m')
-    except: return
+    except Exception as e:
+        print(f"Data Read Error: {e}"); return
 
-    # HREF Levels from your diagnostic check
+    # Vertical Profile (HREF Mean Levels)
     avail_levels = [925, 850, 700, 500, 250]
     u_l, v_l, h_l, p_l = [], [], [], []
     for lev in avail_levels:
@@ -56,7 +61,7 @@ def process_hour(f_hour):
     h_stack = np.array(h_l) * units('m')
     p_stack = np.array(p_l) * units('hPa')
 
-    # 2. BASE MAP
+    # 2. PLOTTING
     fig = plt.figure(figsize=(18, 12), facecolor='white')
     ax = fig.add_subplot(1, 1, 1, projection=ccrs.PlateCarree())
     ax.set_extent(EXTENT, crs=ccrs.PlateCarree())
@@ -64,42 +69,53 @@ def process_hour(f_hour):
     ax.add_feature(cfeature.STATES, edgecolor='black', linewidth=0.8, zorder=10)
     ax.add_feature(USCOUNTIES.with_scale('500k'), edgecolor='black', linewidth=0.2, alpha=0.3, zorder=10)
     
-    # Original Magma CAPE
+    # --- FIX 1: THE MISSING TRANSFORM ---
+    # Without 'transform=ccrs.PlateCarree()', the colors are drawn in space!
     clevs = [100, 500, 1000, 1500, 2000, 2500, 3000, 4000, 5000]
-    cf = ax.contourf(lons, lats, cape, levels=clevs, cmap='magma', alpha=0.4, zorder=1)
+    cf = ax.contourf(lons, lats, cape, levels=clevs, cmap='magma', alpha=0.4, 
+                     transform=ccrs.PlateCarree(), zorder=1)
     plt.colorbar(cf, orientation='horizontal', pad=0.03, aspect=50, label='SBCAPE (J/kg)')
 
-    # 3. COORDINATE-LOCKED HODOGRAPHS
+    # 3. HODOGRAPH LOOP
     skip = 42 
+    success_count = 0
+    
     for i in range(0, lats.shape[0], skip):
         for j in range(0, lats.shape[1], skip):
             lon, lat = lons[i,j], lats[i,j]
             if not (EXTENT[0] <= lon <= EXTENT[1] and EXTENT[2] <= lat <= EXTENT[3]): continue
+            
+            # Skip points with no wind data (prevents silent crash)
+            if np.isnan(u_stack[:,i,j].magnitude).any(): continue
 
             try:
-                # Key Fix: Anchoring inset to map data coordinates
+                # --- FIX 2: COORDINATE ANCHOR ---
                 ax_ins = inset_axes(ax, width="0.45in", height="0.45in", 
                                     bbox_to_anchor=(lon, lat), 
                                     bbox_transform=ax.transData, loc='center', borderpad=0)
                 
-                hodo = Hodograph(ax_ins, component_range=60)
-                hodo.add_grid(increment=20, color='gray', alpha=0.5, linewidth=0.5)
+                h = Hodograph(ax_ins, component_range=60)
+                h.add_grid(increment=20, color='gray', alpha=0.5, linewidth=0.5)
                 
-                # Height-coded AGL segments
-                hodo.plot_colormapped(u_stack[:,i,j].to('kt'), v_stack[:,i,j].to('kt'), h_stack[:,i,j] - h_sfc[i,j],
+                h.plot_colormapped(u_stack[:,i,j].to('kt'), v_stack[:,i,j].to('kt'), h_stack[:,i,j] - h_sfc[i,j],
                                      intervals=[0, 1000, 3000, 6000, 9000] * units.m,
                                      colors=['#ff00ff', '#ff0000', '#00ff00', '#ffff00'], linewidth=1.5)
                 
-                # Bunkers Storm Motion
                 rm, lm, mw = mpcalc.bunkers_storm_motion(p_stack[:,i,j], u_stack[:,i,j], v_stack[:,i,j], h_stack[:,i,j])
                 ax_ins.plot(rm[0].to('kt'), rm[1].to('kt'), 'ro', markersize=1.2)
                 ax_ins.plot(lm[0].to('kt'), lm[1].to('kt'), 'bo', markersize=1.2)
                 ax_ins.axis('off')
-            except: continue
+                success_count += 1
+            except Exception as e:
+                # Print FIRST error only to debug
+                if success_count == 0: print(f"Plot Error at {lat:.2f},{lon:.2f}: {e}")
+                continue
 
+    print(f"   -> Plotted {success_count} hodographs.")
+    
+    out_path = f"{OUTPUT_DIR}/hodo_f{f_str}.png"
     plt.title(f"HREF Mean SE Dynamics | Valid: {time_label}", loc='left', fontweight='bold')
-    plt.savefig(f"{OUTPUT_DIR}/hodo_f{f_str}.png", dpi=120, bbox_inches='tight')
-    plt.close(); grbs.close()
-    print(f"SUCCESS: Saved hodo_f{f_str}.png")
+    plt.savefig(out_path, dpi=120, bbox_inches='tight')
+    plt.close()
 
 for hr in [1, 6, 12, 18, 24]: process_hour(hr)
