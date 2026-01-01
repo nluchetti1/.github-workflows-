@@ -23,7 +23,7 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libeccodes-dev # Essential for pygrib
+          sudo apt-get install -y libeccodes-dev
 
       - name: Install Python Libraries
         run: pip install numpy matplotlib cartopy pygrib metpy requests pytz
@@ -35,14 +35,11 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          
-          # Force track the folder
           mkdir -p hodo_data
           git add hodo_data/*.png
-          
           if git diff --staged --quiet; then
-            echo "Nothing to commit!"
+            echo "No changes"
           else
-            git commit -m "Full Dynamics Refresh - $(date)"
+            git commit -m "Dynamics Update $(date)"
             git push origin main
           fi
