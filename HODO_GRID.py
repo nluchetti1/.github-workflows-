@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
+import cartopy.feature as cfeature
 import pygrib, requests, os, numpy as np
 import metpy.calc as mpcalc
 from metpy.plots import Hodograph, USCOUNTIES
@@ -10,13 +11,12 @@ import pytz
 
 # --- CONFIGURATION ---
 now = datetime.now(pytz.UTC)
-# Setting the cycle logic
 DATE_STR = now.strftime('%Y%m%d')
+# Target the most recent 00Z or 12Z cycle
 CYCLE = "12" if now.hour >= 16 else "00"
 START_TIME = datetime.strptime(f"{DATE_STR}{CYCLE}", "%Y%m%d%H").replace(tzinfo=pytz.UTC)
 
-# Domain: Southeast US
-EXTENT = [-92.0, -74.0, 24.5, 38.5] 
+EXTENT = [-92.0, -74.0, 24.5, 38.5] # Southeast US
 OUTPUT_DIR = "hodo_data"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -65,9 +65,8 @@ def process_hour(f_hour):
     ax.set_extent(EXTENT)
     
     # Bold Borders
-    import cartopy.feature as cfeature
-    ax.add_feature(cfeature.STATES, edgecolor='black', linewidth=1.5, zorder=5)
-    ax.add_feature(USCOUNTIES.with_scale('500k'), edgecolor='black', linewidth=0.5, alpha=0.6, zorder=5)
+    ax.add_feature(cfeature.STATES, edgecolor='black', linewidth=2.0, zorder=5)
+    ax.add_feature(USCOUNTIES.with_scale('500k'), edgecolor='black', linewidth=0.6, alpha=0.5, zorder=5)
     
     # SPC-Style CAPE Palette
     cape_levels = [100, 250, 500, 750, 1000, 1500, 2000, 2500, 3000, 4000, 5000]
@@ -78,30 +77,27 @@ def process_hour(f_hour):
     cbar = plt.colorbar(cf, orientation='horizontal', pad=0.03, aspect=50)
     cbar.set_label('SBCAPE (J/kg)', fontweight='bold')
     
-    # 3. Grid Loop - MASK REMOVED
+    # 3. Grid Loop
     skip = 45 
     for i in range(0, lats.shape[0], skip):
         for j in range(0, lats.shape[1], skip):
-            # No longer checking CAPE value; just plot everywhere within bounds
             if not (EXTENT[0] <= lons[i,j] <= EXTENT[1]): continue
 
             try:
                 # Bunkers Storm Motion
                 rm, lm, mw = mpcalc.bunkers_storm_motion(p_stack[:,i,j], u_stack[:,i,j], v_stack[:,i,j], h_stack[:,i,j])
                 
-                # Inset Settings
                 ax_ins = inset_axes(ax, width="0.55in", height="0.55in", bbox_to_anchor=(lons[i,j], lats[i,j]), bbox_transform=ax.transData, loc='center')
                 h = Hodograph(ax_ins, component_range=60)
                 h.add_grid(increment=20, color='gray', alpha=0.5, linewidth=0.7)
                 
-                # SPC Intervals
+                # Height-Based color coding
                 h.plot_colormapped(u_stack[:,i,j].to('kt'), v_stack[:,i,j].to('kt'), h_stack[:,i,j] - h_stack[0,i,j],
                                      intervals=[0, 500, 3000, 6000, 9000] * units.m,
-                                     colors=['#ff00ff', '#ff0000', '#00ff00', '#ffff00'], linewidth=1.5)
+                                     colors=['#ff00ff', '#ff0000', '#00ff00', '#ffff00'], linewidth=1.8)
                 
-                # Storm Motion Points
-                ax_ins.plot(rm[0].to('kt'), rm[1].to('kt'), marker='o', color='red', markersize=1.5, zorder=10)
-                ax_ins.plot(lm[0].to('kt'), lm[1].to('kt'), marker='o', color='blue', markersize=1.5, zorder=10)
+                ax_ins.plot(rm[0].to('kt'), rm[1].to('kt'), marker='o', color='red', markersize=1.8, zorder=10)
+                ax_ins.plot(lm[0].to('kt'), lm[1].to('kt'), marker='o', color='blue', markersize=1.8, zorder=10)
                 ax_ins.axis('off')
             except: continue
 
@@ -111,4 +107,6 @@ def process_hour(f_hour):
     plt.savefig(f"{OUTPUT_DIR}/hodo_f{f_str}.png", dpi=150, bbox_inches='tight')
     plt.close(); grbs.close()
 
-for hr in range(1, 25): process_hour(hr)
+# LOOP THROUGH ALL 48 HOURS
+for hr in range(1, 49): 
+    process_hour(hr)
