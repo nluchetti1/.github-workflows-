@@ -3,19 +3,19 @@ name: HREF Hodograph Grid Update
 on:
   schedule:
     - cron: '30 4,16 * * *'
-  workflow_dispatch: # Allows manual testing
+  workflow_dispatch:
 
 jobs:
   build-hodographs:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Essential for pushing images
+      contents: write
       
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Fetches full history for proper rebasing
+          fetch-depth: 0 
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -25,14 +25,12 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libeccodes-dev # Required for pygrib to read GRIB2
+          sudo apt-get install -y libeccodes-dev # Essential for pygrib
 
       - name: Install Python Libraries
-        run: |
-          pip install numpy matplotlib cartopy pygrib metpy requests pytz
+        run: pip install numpy matplotlib cartopy pygrib metpy requests pytz
 
       - name: Run Hodograph Script
-        # Ensure your Python script is named exactly SPC_HODO_GRID.py
         run: python SPC_HODO_GRID.py
 
       - name: Commit and Push
@@ -40,16 +38,14 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           
-          # 1. Force sync the local runner with the remote repo to prevent rejection
+          # Force sync to prevent [rejected] error
           git pull --rebase origin main
           
-          # 2. Stage the new images
           mkdir -p hodo_data
           git add hodo_data/*.png
           
-          # 3. Only commit if there are actually changes
           if git diff --staged --quiet; then
-            echo "No new images to commit."
+            echo "No new images found."
           else
             git commit -m "Dynamics Hard Refresh - $(date)"
             git push origin main
