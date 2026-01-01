@@ -9,11 +9,12 @@ from datetime import datetime, timedelta
 import pytz
 
 # --- CONFIGURATION ---
-# Auto-adjust date to ensure we hit available data on NOMADS
 now = datetime.now(pytz.UTC)
-DATE = now.strftime('%Y%m%d')
+# Adjust date to ensure data is available
+DATE = (now - timedelta(hours=6)).strftime('%Y%m%d')
 CYCLE = "12" if now.hour >= 16 else "00"
-EXTENT = [-84.5, -75.0, 33.5, 37.5] # NC Focus
+# ZOOM: Southeast US Domain
+EXTENT = [-92.0, -74.0, 24.5, 38.5] 
 OUTPUT_DIR = "hodo_data"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -21,35 +22,34 @@ def process_hour(f_hour):
     f_str = f"{f_hour:02d}"
     url = f"https://nomads.ncep.noaa.gov/pub/data/nccf/com/href/prod/href.{DATE}/ensprod/href.t{CYCLE}z.conus.mean.f{f_str}.grib2"
     
-    print(f"--- Processing Hour F{f_str} ---")
     try:
-        r = requests.get(url, timeout=30)
+        r = requests.get(url, timeout=45)
         if r.status_code != 200: return
         with open("temp.grib2", "wb") as f: f.write(r.content)
-    except Exception as e:
-        print(f"Download failed: {e}")
-        return
+    except: return
 
     grbs = pygrib.open("temp.grib2")
 
-    # SBCAPE Background - Using shortName for stability
+    # SBCAPE Background - Using shortNames for stability
     try:
         cape_grb = grbs.select(shortName='cape', level=0)[0]
         cape = cape_grb.values
         lats, lons = cape_grb.latlons()
-    except: return
+    except: 
+        print(f"CAPE not found for hour {f_str}")
+        return
 
-    # Vertical Data (U, V, Height) - Using shortNames
+    # Vertical Data (U, V, Height) - Using robust shortNames
     levels = [1000, 925, 850, 700, 500, 300]
     u_list, v_list, h_list = [], [], []
     for lev in levels:
         try:
-            # gh = Geopotential Height
             u_list.append(grbs.select(shortName='u', level=lev)[0].values)
             v_list.append(grbs.select(shortName='v', level=lev)[0].values)
             h_list.append(grbs.select(shortName='gh', level=lev)[0].values)
         except: continue 
 
+    if not u_list: return
     u_all = np.array(u_list) * units('m/s')
     v_all = np.array(v_list) * units('m/s')
     h_all = np.array(h_list) * units('m')
@@ -59,28 +59,30 @@ def process_hour(f_hour):
     ax = fig.add_subplot(1, 1, 1, projection=ccrs.PlateCarree())
     ax.set_extent(EXTENT)
     
-    # SBCAPE
-    cf = ax.contourf(lons, lats, cape, levels=[100, 500, 1000, 2000, 3000, 4000], cmap='magma', alpha=0.5)
+    # SBCAPE Shading
+    clevs = [100, 500, 1000, 2000, 3000, 4000, 5000]
+    ax.contourf(lons, lats, cape, levels=clevs, cmap='magma', alpha=0.5)
     ax.add_feature(USCOUNTIES.with_scale('500k'), edgecolor='white', alpha=0.1)
 
-    # GRID LOOP
-    skip = 35 
+    # GRID LOOPING - Density for SE Domain
+    skip = 45 
     for i in range(0, lats.shape[0], skip):
         for j in range(0, lats.shape[1], skip):
-            try:
-                # 0-6km Shear Arrow
-                u_shr, v_shr = mpcalc.bulk_shear(h_all[:,i,j], u_all[:,i,j], v_all[:,i,j], depth=6000*units.m)
-                ax.quiver(lons[i,j], lats[i,j], u_shr.to('kt').m, v_shr.to('kt').m, color='gold', scale=400, width=0.002, pivot='middle')
+            # Plot logic restricted to extent
+            if EXTENT[0] <= lons[i,j] <= EXTENT[1] and EXTENT[2] <= lats[i,j] <= EXTENT[3]:
+                try:
+                    u_shr, v_shr = mpcalc.bulk_shear(h_all[:,i,j], u_all[:,i,j], v_all[:,i,j], depth=6000*units.m)
+                    ax.quiver(lons[i,j], lats[i,j], u_shr.to('kt').m, v_shr.to('kt').m, color='gold', scale=400, width=0.002, pivot='middle')
 
-                # Hodograph Inset
-                ax_ins = inset_axes(ax, width="0.45in", height="0.45in", bbox_to_anchor=(lons[i,j], lats[i,j]), bbox_transform=ax.transData, loc='center')
-                hodo = Hodograph(ax_ins, component_range=60)
-                hodo.add_grid(increment=20, color='white', alpha=0.1)
-                hodo.plot_colormapped(u_all[:,i,j].to('kt'), v_all[:,i,j].to('kt'), h_all[:,i,j], 
-                                     intervals=[0, 1000, 3000, 6000] * units.m, colors=['#ff00ff', '#ff0000', '#00ff00'])
-                ax_ins.axis('off')
-            except: continue
+                    ax_ins = inset_axes(ax, width="0.45in", height="0.45in", bbox_to_anchor=(lons[i,j], lats[i,j]), bbox_transform=ax.transData, loc='center')
+                    hodo = Hodograph(ax_ins, component_range=60)
+                    hodo.add_grid(increment=20, color='white', alpha=0.15)
+                    hodo.plot_colormapped(u_all[:,i,j].to('kt'), v_all[:,i,j].to('kt'), h_all[:,i,j], 
+                                         intervals=[0, 1000, 3000, 6000] * units.m, colors=['#ff00ff', '#ff0000', '#00ff00'])
+                    ax_ins.axis('off')
+                except: continue
 
+    plt.title(f"Southeast Dynamics | HREF Mean F{f_str}", color='white', loc='left')
     plt.savefig(f"{OUTPUT_DIR}/hodo_f{f_str}.png", dpi=150, facecolor='black', bbox_inches='tight')
     plt.close(); grbs.close()
 
