@@ -2,89 +2,45 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>SE Dynamics Explorer - Quick Test</title>
+    <title>SPC Style Dynamics Explorer</title>
     <style>
-        body { font-family: 'Arial', sans-serif; background: #121212; color: #f0f0f0; text-align: center; margin: 0; padding: 20px; }
-        
-        /* Navigation Styles */
-        nav { margin-bottom: 25px; }
-        nav a { color: #4da6ff; text-decoration: none; margin: 0 15px; font-weight: bold; }
-        nav a:hover { color: #fff; }
-
-        /* Viewer Styles */
-        .viewer-box { width: 95%; max-width: 1100px; margin: auto; border: 3px solid #333; background: #000; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
-        #viewer { width: 100%; display: block; }
-        
-        /* Hour Button Styles */
-        .controls { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin: 20px 0; }
-        .hour-btn { padding: 10px 18px; background: #252525; border: 1px solid #444; color: #bbb; cursor: pointer; border-radius: 4px; font-weight: bold; transition: 0.1s; }
-        .hour-btn:hover { background: #ffcc00; color: #000; transform: scale(1.1); }
-        
-        /* SPC Legend Styles */
-        .legend-container { display: inline-grid; grid-template-columns: auto auto; gap: 30px; padding: 20px; background: #1a1a1a; border-radius: 8px; font-size: 0.9em; margin-top: 15px; border: 1px solid #333; text-align: left; }
-        .swatch { font-weight: bold; }
+        body { font-family: sans-serif; background: #0c0c0c; color: #eee; text-align: center; margin: 0; padding: 20px; }
+        .viewer { width: 95%; max-width: 1150px; margin: auto; border: 2px solid #333; background: #fff; }
+        #display { width: 100%; display: block; }
+        .nav { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin: 20px 0; }
+        .btn { padding: 8px 12px; background: #222; border: 1px solid #444; color: #bbb; cursor: pointer; border-radius: 4px; font-weight: bold; }
+        .btn:hover { background: #ffcc00; color: #000; }
+        .legend { display: inline-block; padding: 15px; background: #1a1a1a; border-radius: 6px; font-size: 0.85em; margin-top: 15px; border: 1px solid #333; text-align: left; }
     </style>
 </head>
 <body>
-
-    <nav>
-        <a href="index.html">🌧️ Rainfall Dashboard</a>
-        <a href="hodo_index.html" style="color: white; pointer-events: none;">🌪️ Dynamics Explorer (Test)</a>
-    </nav>
-
-    <h2>HREF Ensemble Mean: SE Dynamics Quick Test</h2>
-    <p style="color: #888; font-size: 0.9em;">Hover over a forecast hour to update the map</p>
-
-    <div class="viewer-box">
-        <img id="viewer" src="hodo_data/hodo_f01.png" alt="Forecast Loading...">
+    <div style="margin-bottom:20px;">
+        <a href="index.html" style="color:#4da6ff; text-decoration:none; margin-right:20px;">🌧️ Rainfall Dash</a>
+        <b style="color:white;">🌪️ Dynamics Explorer</b>
     </div>
 
-    <div class="controls" id="controls">
-        </div>
+    <div class="viewer"><img id="display" src="hodo_data/hodo_f01.png"></div>
+    <div class="nav" id="nav"></div>
 
-    <div class="legend-container">
-        <div>
-            <b>Hodograph Heights (AGL):</b><br>
-            <span class="swatch" style="color:#ff00ff">0-500m (Magenta)</span><br>
-            <span class="swatch" style="color:#ff0000">0.5-3km (Red)</span><br>
-            <span class="swatch" style="color:#00ff00">3-6km (Green)</span><br>
-            <span class="swatch" style="color:#ffff00">6-9km (Yellow)</span>
-        </div>
-        <div>
-            <b>Storm Motion Markers:</b><br>
-            <span class="swatch" style="color:red">● Bunkers Right-Mover</span><br>
-            <span class="swatch" style="color:blue">● Bunkers Left-Mover</span><br>
-            <span style="color: #888;">Dashed rings @ 20, 40 kt</span><br>
-            <span style="color: #888;">Solid Map Lines: State/County Borders</span>
-        </div>
+    <div class="legend">
+        <b>Hodograph Heights:</b> <span style="color:#ff00ff">0-1km</span> | <span style="color:#ff0000">1-3km</span> | <span style="color:#00ff00">3-6km</span> | <span style="color:#ffff00">6-9km</span><br>
+        <b>Storm Motion:</b> <span style="color:red">● Bunkers Right</span> | <span style="color:blue">● Bunkers Left</span> | Dashed Rings @ 20/40 kt
     </div>
 
     <script>
-        const controls = document.getElementById('controls');
-        const viewer = document.getElementById('viewer');
-        
-        // This MUST match the 'test_hours' in your Python script
-        const testHours = [1, 6, 12, 18, 24]; 
+        const testHours = [1, 6, 12, 18, 24];
+        const nav = document.getElementById('nav');
+        const display = document.getElementById('display');
 
         testHours.forEach(hr => {
             const f = hr.toString().padStart(2, '0');
             const path = `hodo_data/hodo_f${f}.png`;
+            const b = document.createElement('div');
+            b.className = 'btn'; b.innerText = `F${f}`;
             
-            // Create Button
-            const btn = document.createElement('div');
-            btn.className = 'hour-btn';
-            btn.innerText = `F${f}`;
-            
-            // Preload Image to prevent flicker
-            const img = new Image();
-            img.src = path;
-            
-            // Hover Event: Update the main display
-            btn.onmouseover = () => {
-                viewer.src = path;
-            };
-            
-            controls.appendChild(btn);
+            const img = new Image(); img.src = path;
+            b.onmouseover = () => { display.src = path; };
+            nav.appendChild(b);
         });
     </script>
 </body>
