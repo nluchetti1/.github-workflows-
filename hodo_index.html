@@ -2,99 +2,41 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HREF Dynamics Explorer</title>
+    <title>SE Dynamics Explorer</title>
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #0a0a0a; color: #e0e0e0; text-align: center; margin: 0; padding: 20px; }
-        h1 { color: #fff; margin-bottom: 5px; }
-        .subtitle { color: #888; margin-bottom: 20px; font-size: 0.9em; }
-        
-        /* Navigation Styles */
-        nav { margin-bottom: 30px; border-bottom: 1px solid #333; padding-bottom: 15px; }
-        nav a { color: #4da6ff; text-decoration: none; margin: 0 15px; font-weight: bold; }
-        nav a:hover { color: #fff; }
-
-        /* Viewer Styles */
-        .viewer-container { width: 95%; max-width: 1100px; margin: 0 auto; background: #111; border: 2px solid #222; border-radius: 12px; padding: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-        #main-map { width: 100%; border-radius: 6px; display: block; }
-
-        /* Timeline Styles */
-        .timeline { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; margin-top: 20px; }
-        .hour-box { padding: 8px 12px; background: #1a1a1a; border: 1px solid #333; cursor: crosshair; border-radius: 4px; font-size: 0.85em; transition: all 0.15s ease; color: #aaa; }
-        .hour-box:hover { background: #ffcc00; color: #000; font-weight: bold; transform: scale(1.1); z-index: 10; }
-        .active-box { border-color: #ffcc00; color: #ffcc00; }
-
-        /* Legend Styles */
-        .legend { margin-top: 25px; padding: 15px; background: #111; border-radius: 8px; display: inline-block; font-size: 0.9em; border: 1px solid #222; }
-        .color-key { font-weight: bold; padding: 2px 6px; border-radius: 3px; }
-        .purple { color: #ff00ff; }
-        .red { color: #ff0000; }
-        .green { color: #00ff00; }
-        .gold { color: #ffcc00; }
+        body { font-family: sans-serif; background: #080808; color: #eee; text-align: center; }
+        .container { width: 95%; max-width: 1100px; margin: 20px auto; border: 2px solid #222; border-radius: 8px; overflow: hidden; }
+        #viewer { width: 100%; display: block; }
+        .timeline { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; margin: 20px; }
+        .hour { padding: 8px 12px; background: #1a1a1a; border: 1px solid #333; cursor: pointer; color: #888; border-radius: 4px; transition: 0.1s; }
+        .hour:hover { background: #ffcc00; color: #000; font-weight: bold; transform: scale(1.1); }
+        .legend { margin-top: 20px; font-size: 0.9em; border-top: 1px solid #222; padding-top: 15px; }
     </style>
 </head>
 <body>
-
-    <nav>
-        <a href="index.html">🌧️ Rainfall Dashboard</a>
-        <a href="hodo_index.html" style="color: #fff; pointer-events: none;">🌪️ Hodograph Dynamics</a>
-    </nav>
-
-    <h1>NC Severe Weather Dynamics</h1>
-    <div class="subtitle">HREF Ensemble Mean | 0-6km Shear & Grid-Point Hodographs</div>
-
-    <div class="viewer-container">
-        <img id="main-map" src="hodo_data/hodo_f01.png" alt="Forecast Loading...">
-    </div>
-
-    <div class="timeline" id="timeline">
-        </div>
-
+    <h2>Southeast US Severe Weather Dynamics Explorer</h2>
+    <div class="container"><img id="viewer" src="hodo_data/hodo_f01.png"></div>
+    <div class="timeline" id="timeline"></div>
+    
     <div class="legend">
-        <b>Map Key:</b> 
-        Background: <span class="color-key">SBCAPE (magma)</span> | 
-        <span class="gold">↗ 0-6km Bulk Shear Vector</span><br>
-        <b>Hodograph Levels:</b> 
-        <span class="purple">0-1km AGL</span> | 
-        <span class="red">1-3km AGL</span> | 
-        <span class="green">3-6km AGL</span>
+        <b>Color Legend:</b> <span style="color:#ff00ff">0-1km</span> | <span style="color:#ff0000">1-3km</span> | <span style="color:#00ff00">3-6km</span> 
+        &nbsp;&nbsp; <b style="color:gold">↗ 0-6km Shear Vector</b>
     </div>
 
     <script>
         const timeline = document.getElementById('timeline');
-        const mapImg = document.getElementById('main-map');
-        const forecastHours = 24;
-
-        // Preload all images to ensure the "hover" effect is instant
-        const preloadedImages = [];
-        
-        for (let i = 1; i <= forecastHours; i++) {
-            const fStr = i.toString().padStart(2, '0');
-            const imgPath = `hodo_data/hodo_f${fStr}.png`;
-            
-            // Start the browser pre-loading the asset
-            const img = new Image();
-            img.src = imgPath;
-            preloadedImages.push(img);
-
-            // Create the hover button for each hour
+        const viewer = document.getElementById('viewer');
+        for(let i=1; i<=24; i++) {
+            const f = i.toString().padStart(2, '0');
+            const path = `hodo_data/hodo_f${f}.png`;
             const box = document.createElement('div');
-            box.className = 'hour-box';
-            box.innerText = `F${fStr}`;
+            box.className = 'hour'; box.innerText = `F${f}`;
             
-            // Change image on mouseenter (hover)
-            box.onmouseenter = function() {
-                mapImg.src = imgPath;
-                // Highlight active box
-                document.querySelectorAll('.hour-box').forEach(el => el.classList.remove('active-box'));
-                box.classList.add('active-box');
-            };
-
+            // Hover logic
+            const img = new Image(); img.src = path;
+            box.onmouseover = () => { viewer.src = img.src; };
             timeline.appendChild(box);
         }
-
-        // Set F01 as active by default
-        timeline.firstChild.classList.add('active-box');
     </script>
 </body>
 </html>
