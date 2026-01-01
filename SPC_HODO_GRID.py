@@ -9,20 +9,20 @@ from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from datetime import datetime, timedelta
 import pytz
 
-# --- 1. CONFIGURATION ---
+# --- CONFIGURATION ---
 now = datetime.now(pytz.UTC)
 DATE_STR = now.strftime('%Y%m%d')
 CYCLE = "00" 
 START_TIME = datetime.strptime(f"{DATE_STR}{CYCLE}", "%Y%m%d%H").replace(tzinfo=pytz.UTC)
+
 EXTENT = [-92.0, -74.0, 24.5, 38.5] 
 OUTPUT_DIR = "hodo_data"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 def process_hour(f_hour):
-    # Fix for NameError: Initialize variables before the try block
+    f_str = f"{f_hour:02d}"
     valid_time = START_TIME + timedelta(hours=f_hour)
     time_label = valid_time.strftime('%m/%d/%Y %H:%M UTC')
-    f_str = f"{f_hour:02d}"
     
     url = f"https://nomads.ncep.noaa.gov/pub/data/nccf/com/href/prod/href.{DATE_STR}/ensprod/href.t{CYCLE}z.conus.mean.f{f_str}.grib2"
     
@@ -33,17 +33,17 @@ def process_hour(f_hour):
         with open("temp.grib2", "wb") as f: f.write(r.content)
         grbs = pygrib.open("temp.grib2")
     except Exception as e:
-        print(f"Download failed: {e}")
+        print(f"Error: {e}")
         return
 
-    # 2. DATA EXTRACTION
+    # 1. DATA EXTRACTION
     try:
         cape = grbs.select(shortName='cape', level=0)[0].values
         lats, lons = grbs.select(shortName='cape', level=0)[0].latlons()
         h_sfc = grbs.select(shortName='gh', level=0)[0].values * units('m')
     except: return
 
-    # Available HREF Levels
+    # HREF Levels: 925, 850, 700, 500, 250 mb
     avail_levels = [925, 850, 700, 500, 250]
     u_l, v_l, h_l, p_l = [], [], [], []
     for lev in avail_levels:
@@ -52,13 +52,12 @@ def process_hour(f_hour):
         h_l.append(grbs.select(shortName='gh', level=lev)[0].values)
         p_l.append(np.full(u_l[0].shape, lev))
 
-    # FIX: Corrected unit string 'm/s' (was 'v/s' in previous log error)
     u_stack = np.array(u_l) * units('m/s')
-    v_stack = np.array(v_l) * units('m/s') 
+    v_stack = np.array(v_l) * units('m/s')
     h_stack = np.array(h_l) * units('m')
     p_stack = np.array(p_l) * units('hPa')
 
-    # 3. BASE MAP
+    # 2. BASE MAP PLOTTING
     fig = plt.figure(figsize=(18, 12), facecolor='white')
     ax = fig.add_subplot(1, 1, 1, projection=ccrs.PlateCarree())
     ax.set_extent(EXTENT, crs=ccrs.PlateCarree())
@@ -66,12 +65,12 @@ def process_hour(f_hour):
     ax.add_feature(cfeature.STATES, edgecolor='black', linewidth=0.8, zorder=10)
     ax.add_feature(USCOUNTIES.with_scale('500k'), edgecolor='black', linewidth=0.2, alpha=0.3, zorder=10)
     
-    # Original Magma CAPE Palette
+    # Original Magma Color Levels
     clevs = [100, 500, 1000, 1500, 2000, 2500, 3000, 4000, 5000]
     cf = ax.contourf(lons, lats, cape, levels=clevs, cmap='magma', alpha=0.4, zorder=1)
     plt.colorbar(cf, orientation='horizontal', pad=0.03, aspect=50, label='SBCAPE (J/kg)')
 
-    # 4. COORDINATE-LOCKED HODOGRAPH OVERLAY
+    # 3. HODOGRAPH OVERLAY (Manual Inset Logic)
     skip = 42 
     for i in range(0, lats.shape[0], skip):
         for j in range(0, lats.shape[1], skip):
@@ -79,20 +78,20 @@ def process_hour(f_hour):
             if not (EXTENT[0] <= lon <= EXTENT[1] and EXTENT[2] <= lat <= EXTENT[3]): continue
 
             try:
-                # COORDINATE ANCHOR: Uses transData to pin inset to Geo-coordinates
+                # This transform pins the inset to the geographical data
                 ax_ins = inset_axes(ax, width="0.45in", height="0.45in", 
                                     bbox_to_anchor=(lon, lat), 
                                     bbox_transform=ax.transData, loc='center', borderpad=0)
                 
-                hodo = Hodograph(ax_ins, component_range=60)
-                hodo.add_grid(increment=20, color='gray', alpha=0.5, linewidth=0.5)
+                h = Hodograph(ax_ins, component_range=60)
+                h.add_grid(increment=20, color='gray', alpha=0.5, linewidth=0.5)
                 
-                # Plot AGL segments (Height - Surface)
-                hodo.plot_colormapped(u_stack[:,i,j].to('kt'), v_stack[:,i,j].to('kt'), h_stack[:,i,j] - h_sfc[i,j],
+                # Plot AGL heights (Height - Surface)
+                h.plot_colormapped(u_stack[:,i,j].to('kt'), v_stack[:,i,j].to('kt'), h_stack[:,i,j] - h_sfc[i,j],
                                      intervals=[0, 1000, 3000, 6000, 9000] * units.m,
                                      colors=['#ff00ff', '#ff0000', '#00ff00', '#ffff00'], linewidth=1.5)
                 
-                # Bunkers Storm Motion Dots
+                # Bunkers Storm Motion
                 rm, lm, mw = mpcalc.bunkers_storm_motion(p_stack[:,i,j], u_stack[:,i,j], v_stack[:,i,j], h_stack[:,i,j])
                 ax_ins.plot(rm[0].to('kt'), rm[1].to('kt'), 'ro', markersize=1.2)
                 ax_ins.plot(lm[0].to('kt'), lm[1].to('kt'), 'bo', markersize=1.2)
@@ -103,4 +102,5 @@ def process_hour(f_hour):
     plt.savefig(f"{OUTPUT_DIR}/hodo_f{f_str}.png", dpi=120, bbox_inches='tight')
     plt.close(); grbs.close()
 
+# TEST 5 HOURS
 for hr in [1, 6, 12, 18, 24]: process_hour(hr)
