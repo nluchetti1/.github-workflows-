@@ -1,0 +1,48 @@
+name: Generate HREF Hodograph Maps
+
+on:
+  schedule:
+    # 15:30 UTC (for 12Z run) and 04:00 UTC (for 00Z run)
+    - cron: '30 15 * * *'
+    - cron: '0 4 * * *'
+  workflow_dispatch: # Allows manual trigger
+
+jobs:
+  build-and-plot:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Needed to push the image back to the repo
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Setup Python & Micromamba
+        uses: mamba-org/setup-micromamba@v1
+        with:
+          micromamba-version: 'latest'
+          environment-name: href-env
+          create-args: >-
+            python=3.10
+            numpy
+            matplotlib
+            cartopy
+            xarray
+            cfgrib
+            metpy
+            requests
+            eccodes
+
+      - name: Run Plotting Script
+        shell: bash -l {0}
+        run: |
+          python plot_href_hodographs.py
+
+      - name: Commit and Push Image
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add images/*.png
+          # Only commit if there are changes
+          git commit -m "Update HREF hodograph map [skip ci]" || echo "No changes to commit"
+          git push
