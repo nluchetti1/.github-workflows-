@@ -2,12 +2,15 @@ name: HREF Hodograph Grid
 
 on:
   schedule:
-    - cron: '15 4,16 * * *' # Offset from LPMM run to avoid server load
+    - cron: '15 4,16 * * *' 
   workflow_dispatch: 
 
 jobs:
   build-hodographs:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # REQUIRED to fix the 403 error
+      
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -19,6 +22,7 @@ jobs:
 
       - name: Install dependencies
         run: |
+          sudo apt-get install libeccodes-dev
           pip install numpy matplotlib cartopy pygrib metpy requests
 
       - name: Run Hodograph Script
@@ -28,6 +32,6 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add -A
+          git add hodo_data/*.png
           git commit -m "Update HREF Hodograph Grid" --allow-empty
           git push
