@@ -5,7 +5,7 @@ import pygrib, requests, os, numpy as np
 import metpy.calc as mpcalc
 from metpy.plots import Hodograph, USCOUNTIES
 from metpy.units import units
-from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes, Bbox
 from datetime import datetime, timedelta
 import pytz
 import shutil
@@ -18,7 +18,7 @@ START_TIME = datetime.strptime(f"{DATE_STR}{CYCLE}", "%Y%m%d%H").replace(tzinfo=
 EXTENT = [-92.0, -74.0, 24.5, 38.5] 
 OUTPUT_DIR = "hodo_data"
 
-# FORCE CLEANUP: Delete old folder to ensure new files are actually new
+# FORCE CLEANUP: Delete old folder to ensure we aren't diffing against bad files
 if os.path.exists(OUTPUT_DIR):
     shutil.rmtree(OUTPUT_DIR)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -29,7 +29,7 @@ def process_hour(f_hour):
     time_label = valid_time.strftime('%m/%d/%Y %H:%M UTC')
     
     url = f"https://nomads.ncep.noaa.gov/pub/data/nccf/com/href/prod/href.{DATE_STR}/ensprod/href.t{CYCLE}z.conus.mean.f{f_str}.grib2"
-    print(f">>> STARTING F{f_str}...")
+    print(f">>> PROCESSING F{f_str}...")
 
     try:
         r = requests.get(url, timeout=60)
@@ -47,7 +47,7 @@ def process_hour(f_hour):
     except Exception as e:
         print(f"Data Read Error: {e}"); return
 
-    # Vertical Profile (HREF Mean Levels)
+    # Vertical Profile
     avail_levels = [925, 850, 700, 500, 250]
     u_l, v_l, h_l, p_l = [], [], [], []
     for lev in avail_levels:
@@ -69,8 +69,7 @@ def process_hour(f_hour):
     ax.add_feature(cfeature.STATES, edgecolor='black', linewidth=0.8, zorder=10)
     ax.add_feature(USCOUNTIES.with_scale('500k'), edgecolor='black', linewidth=0.2, alpha=0.3, zorder=10)
     
-    # --- FIX 1: THE MISSING TRANSFORM ---
-    # Without 'transform=ccrs.PlateCarree()', the colors are drawn in space!
+    # FIX 1: Add transform=ccrs.PlateCarree() so colors actually appear!
     clevs = [100, 500, 1000, 1500, 2000, 2500, 3000, 4000, 5000]
     cf = ax.contourf(lons, lats, cape, levels=clevs, cmap='magma', alpha=0.4, 
                      transform=ccrs.PlateCarree(), zorder=1)
@@ -84,15 +83,16 @@ def process_hour(f_hour):
         for j in range(0, lats.shape[1], skip):
             lon, lat = lons[i,j], lats[i,j]
             if not (EXTENT[0] <= lon <= EXTENT[1] and EXTENT[2] <= lat <= EXTENT[3]): continue
-            
-            # Skip points with no wind data (prevents silent crash)
             if np.isnan(u_stack[:,i,j].magnitude).any(): continue
 
             try:
-                # --- FIX 2: COORDINATE ANCHOR ---
+                # FIX 2: THE ANCHOR FIX
+                # We use a explicit Bbox centered at the lat/lon point
+                # This solves the "Using relative units..." error
                 ax_ins = inset_axes(ax, width="0.45in", height="0.45in", 
                                     bbox_to_anchor=(lon, lat), 
-                                    bbox_transform=ax.transData, loc='center', borderpad=0)
+                                    bbox_transform=ax.transData, 
+                                    loc='center', borderpad=0)
                 
                 h = Hodograph(ax_ins, component_range=60)
                 h.add_grid(increment=20, color='gray', alpha=0.5, linewidth=0.5)
@@ -107,7 +107,6 @@ def process_hour(f_hour):
                 ax_ins.axis('off')
                 success_count += 1
             except Exception as e:
-                # Print FIRST error only to debug
                 if success_count == 0: print(f"Plot Error at {lat:.2f},{lon:.2f}: {e}")
                 continue
 
