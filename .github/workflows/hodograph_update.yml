@@ -9,7 +9,7 @@ jobs:
   build-hodographs:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Crucial for pushing images
+      contents: write
       
     steps:
       - name: Checkout Repository
@@ -23,7 +23,7 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libeccodes-dev
+          sudo apt-get install -y libeccodes-dev # Essential for pygrib
 
       - name: Install Python Libraries
         run: pip install numpy matplotlib cartopy pygrib metpy requests pytz
@@ -36,15 +36,13 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           
-          # Force create directory if script somehow failed to
+          # Force track the folder
           mkdir -p hodo_data
-          
-          # Add all files including new ones
           git add hodo_data/*.png
           
           if git diff --staged --quiet; then
-            echo "No new images found to commit."
+            echo "Nothing to commit!"
           else
-            git commit -m "Update HREF SE Dynamics - $(date)"
-            git push
+            git commit -m "Full Dynamics Refresh - $(date)"
+            git push origin main
           fi
