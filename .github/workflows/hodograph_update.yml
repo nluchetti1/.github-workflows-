@@ -2,60 +2,43 @@ name: HREF Hodograph Grid Update
 
 on:
   schedule:
-    - cron: '30 4,16 * * *' # Runs after HREF 00z and 12z are usually available
-  workflow_dispatch: # Allows you to run it manually for testing
+    - cron: '30 4,16 * * *'
+  workflow_dispatch:
 
 jobs:
   build-hodographs:
     runs-on: ubuntu-latest
-    
-    # REQUIRED: Explicitly grant write permissions to fix the 403 error
     permissions:
       contents: write
       
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # Ensures full history for clean pushes
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-          cache: 'pip' # Speeds up subsequent runs
 
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libeccodes-dev # Required for pygrib to read GRIB2
+          sudo apt-get install -y libeccodes-dev
 
       - name: Install Python Libraries
         run: |
           pip install numpy matplotlib cartopy pygrib metpy requests pytz
 
-      - name: Prepare Workspace
-        run: |
-          mkdir -p hodo_data
-          # Optional: Clear old images to ensure fresh test results
-          rm -f hodo_data/*.png 
-
       - name: Run Hodograph Script
-        # This will show your ">>> STARTING HOUR <<<" logs here
         run: python SPC_HODO_GRID.py
 
-      - name: Commit and Push Changes
-        # This block ensures the hodo_data folder is tracked and pushed
+      - name: Commit and Push
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          
-          # Add only the hodo_data folder and images
           git add hodo_data/*.png
-          
-          # Only commit if changes exist to avoid workflow errors
           if git diff --staged --quiet; then
-            echo "No changes to commit"
+            echo "No changes"
           else
             git commit -m "Update HREF SE Dynamics - $(date)"
             git push origin main
