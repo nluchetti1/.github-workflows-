@@ -2,37 +2,33 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>SPC Style Dynamics Explorer</title>
+    <title>SE Dynamics Explorer</title>
     <style>
-        body { font-family: 'Arial', sans-serif; background: #121212; color: #f0f0f0; text-align: center; margin: 0; padding: 20px; }
-        .viewer-box { width: 95%; max-width: 1100px; margin: auto; border: 2px solid #333; background: #000; }
+        body { font-family: sans-serif; background: #121212; color: #eee; text-align: center; margin: 0; padding: 20px; }
+        .nav { margin-bottom: 20px; }
+        .nav a { color: #4da6ff; text-decoration: none; margin: 0 15px; font-weight: bold; }
+        .container { width: 95%; max-width: 1150px; margin: auto; border: 2px solid #333; background: #fff; }
         #viewer { width: 100%; display: block; }
         .controls { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; margin: 20px 0; }
-        .hour-btn { padding: 6px 10px; background: #252525; border: 1px solid #444; color: #bbb; cursor: pointer; border-radius: 3px; font-size: 0.85em; }
+        .hour-btn { padding: 8px 12px; background: #252525; border: 1px solid #444; color: #bbb; cursor: pointer; border-radius: 4px; }
         .hour-btn:hover { background: #ffcc00; color: #000; font-weight: bold; }
-        .legend-grid { display: inline-grid; grid-template-columns: auto auto; gap: 20px; padding: 15px; background: #1a1a1a; border-radius: 5px; font-size: 0.9em; margin-top: 10px; border: 1px solid #333; }
-        .swatch { font-weight: bold; }
+        .legend { margin-top: 20px; padding: 15px; background: #1a1a1a; border-radius: 5px; font-size: 0.9em; border: 1px solid #333; display: inline-block; }
     </style>
 </head>
 <body>
-    <h2>HREF Ensemble Mean: SE Dynamics Overlay</h2>
-    <div class="viewer-box"><img id="viewer" src="hodo_data/hodo_f01.png"></div>
+    <div class="nav">
+        <a href="index.html">🌧️ Rainfall Dashboard</a>
+        <a href="hodo_index.html" style="color:white; pointer-events:none;">🌪️ Dynamics Explorer</a>
+    </div>
+
+    <div class="container"><img id="viewer" src="hodo_data/hodo_f01.png"></div>
     <div class="controls" id="controls"></div>
 
-    <div class="legend-grid">
-        <div>
-            <b>Hodograph Heights (AGL):</b><br>
-            <span class="swatch" style="color:#ff00ff">0-500m</span> | 
-            <span class="swatch" style="color:#ff0000">0.5-3km</span> | 
-            <span class="swatch" style="color:#00ff00">3-6km</span> | 
-            <span class="swatch" style="color:#ffff00">6-9km</span>
-        </div>
-        <div>
-            <b>Storm Motion Markers:</b><br>
-            <span class="swatch" style="color:red">● Bunkers Right</span> | 
-            <span class="swatch" style="color:blue">● Bunkers Left</span><br>
-            Dashed rings @ 20, 40 kt
-        </div>
+    <div class="legend">
+        <b>SPC Legend:</b> 
+        <span style="color:#ff00ff">0-500m</span> | <span style="color:#ff0000">0.5-3km</span> | 
+        <span style="color:#00ff00">3-6km</span> | <span style="color:#ffff00">6-9km</span>
+        &nbsp;&nbsp; <span style="color:red">● Right Mover</span> | <span style="color:blue">● Left Mover</span>
     </div>
 
     <script>
@@ -43,8 +39,6 @@
             const path = `hodo_data/hodo_f${f}.png`;
             const btn = document.createElement('div');
             btn.className = 'hour-btn'; btn.innerText = `F${f}`;
-            
-            // Preload and Hover
             const img = new Image(); img.src = path;
             btn.onmouseover = () => { viewer.src = img.src; };
             controls.appendChild(btn);
