@@ -9,7 +9,7 @@ jobs:
   build-hodographs:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write # Essential for push
       
     steps:
       - name: Checkout Repository
@@ -35,11 +35,18 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
+          
+          # Force create directory if script missed it
           mkdir -p hodo_data
+          
+          # HARD ADD: specifically target the pngs
           git add hodo_data/*.png
+          
+          # Check if anything was actually added
           if git diff --staged --quiet; then
-            echo "No changes"
+            echo "ERROR: No images found in hodo_data/ to commit."
+            exit 1
           else
-            git commit -m "Dynamics Update $(date)"
+            git commit -m "Hard Update Dynamics Refresh - $(date)"
             git push origin main
           fi
