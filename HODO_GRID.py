@@ -9,19 +9,18 @@ from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from datetime import datetime, timedelta
 import pytz
 
-# --- CONFIGURATION ---
+# --- 1. CONFIGURATION ---
 now = datetime.now(pytz.UTC)
 DATE_STR = now.strftime('%Y%m%d')
-CYCLE = "00" # Adjusted for current test run
+CYCLE = "00" 
 START_TIME = datetime.strptime(f"{DATE_STR}{CYCLE}", "%Y%m%d%H").replace(tzinfo=pytz.UTC)
-
-EXTENT = [-92.0, -74.0, 24.5, 38.5] # SE US Domain
+EXTENT = [-92.0, -74.0, 24.5, 38.5] 
 OUTPUT_DIR = "hodo_data"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 def process_hour(f_hour):
     f_str = f"{f_hour:02d}"
-    # Initialize time_label outside the try block to prevent NameError
+    # FIX: Define time_label outside the try block to prevent NameError
     valid_time = START_TIME + timedelta(hours=f_hour)
     time_label = valid_time.strftime('%m/%d/%Y %H:%M UTC')
     
@@ -34,55 +33,46 @@ def process_hour(f_hour):
         with open("temp.grib2", "wb") as f: f.write(r.content)
         grbs = pygrib.open("temp.grib2")
     except Exception as e:
-        print(f"Download Error for F{f_str}: {e}")
+        print(f"Error for F{f_str}: {e}")
         return
 
-    # 1. Background SBCAPE (Using diagnostic Index 4)
+    # 2. DATA EXTRACTION
     try:
-        cape_msg = grbs.select(shortName='cape', level=0)[0]
-        cape = cape_msg.values
-        lats, lons = cape_msg.latlons()
+        cape = grbs.select(shortName='cape', level=0)[0].values
+        lats, lons = grbs.select(shortName='cape', level=0)[0].latlons()
+        h_sfc = grbs.select(shortName='gh', level=0)[0].values * units('m')
     except: return
 
-    # 2. Force Ground Layer for MetPy Calculations
-    # Using diagnostic Index 43 (GH 0) and proxying 925mb for surface wind
-    h_sfc = grbs.select(shortName='gh', level=0)[0].values * units('m')
-    u_sfc = grbs.select(shortName='u', level=925)[0].values * units('m/s')
-    v_sfc = grbs.select(shortName='v', level=925)[0].values * units('m/s')
-
-    # 3. Build Vertical Profile from available HREF levels
+    # Manual Vertical Profile based on your diagnostic log levels
     avail_levels = [925, 850, 700, 500, 250]
-    u_l, v_l, h_l, p_l = [u_sfc], [v_sfc], [h_sfc], [np.full(u_sfc.shape, 1013)]
-    
+    u_l, v_l, h_l, p_l = [], [], [], []
     for lev in avail_levels:
-        try:
-            u_l.append(grbs.select(shortName='u', level=lev)[0].values)
-            v_l.append(grbs.select(shortName='v', level=lev)[0].values)
-            h_l.append(grbs.select(shortName='gh', level=lev)[0].values)
-            p_l.append(np.full(u_sfc.shape, lev))
-        except: continue
+        u_l.append(grbs.select(shortName='u', level=lev)[0].values)
+        v_l.append(grbs.select(shortName='v', level=lev)[0].values)
+        h_l.append(grbs.select(shortName='gh', level=lev)[0].values)
+        p_l.append(np.full(u_l[0].shape, lev))
 
     u_stack = np.array(u_l) * units('m/s')
     v_stack = np.array(v_l) * units('m/s')
     h_stack = np.array(h_l) * units('m')
     p_stack = np.array(p_l) * units('hPa')
 
-    # --- PLOTTING ---
+    # --- 3. PLOTTING ---
     fig = plt.figure(figsize=(18, 12), facecolor='white')
     ax = fig.add_subplot(1, 1, 1, projection=ccrs.PlateCarree())
     ax.set_extent(EXTENT, crs=ccrs.PlateCarree())
     
-    # Border Adjustments: Professional weight
+    # Border Weight: Professional lines
     ax.add_feature(cfeature.STATES, edgecolor='black', linewidth=0.8, zorder=10)
     ax.add_feature(USCOUNTIES.with_scale('500k'), edgecolor='black', linewidth=0.2, alpha=0.3, zorder=10)
     
-    # Original Magma Colorbar
+    # SBCAPE Magma Colorbar
     clevs = [100, 500, 1000, 1500, 2000, 2500, 3000, 4000, 5000]
     cf = ax.contourf(lons, lats, cape, levels=clevs, cmap='magma', alpha=0.4, zorder=1)
     cbar = plt.colorbar(cf, orientation='horizontal', pad=0.03, aspect=50)
     cbar.set_label('SBCAPE (J/kg)', fontweight='bold')
 
-    # 4. Grid Loop
+    # Grid Loop
     skip = 42 
     for i in range(0, lats.shape[0], skip):
         for j in range(0, lats.shape[1], skip):
@@ -90,10 +80,7 @@ def process_hour(f_hour):
             if not (EXTENT[0] <= lon <= EXTENT[1] and EXTENT[2] <= lat <= EXTENT[3]): continue
 
             try:
-                # Bunkers Storm Motion
-                rm, lm, mw = mpcalc.bunkers_storm_motion(p_stack[:,i,j], u_stack[:,i,j], v_stack[:,i,j], h_stack[:,i,j])
-                
-                # Inset Settings
+                # Inset Placement FIX: Using transData to pin to lat/lon
                 ax_ins = inset_axes(ax, width="0.45in", height="0.45in", 
                                     bbox_to_anchor=(lon, lat), 
                                     bbox_transform=ax.transData, loc='center', borderpad=0)
@@ -101,20 +88,21 @@ def process_hour(f_hour):
                 h = Hodograph(ax_ins, component_range=60)
                 h.add_grid(increment=20, color='gray', alpha=0.5, linewidth=0.5)
                 
-                # Altitude coded segments AGL
+                # Plot color-coded line segments AGL
                 h.plot_colormapped(u_stack[:,i,j].to('kt'), v_stack[:,i,j].to('kt'), h_stack[:,i,j] - h_sfc[i,j],
                                      intervals=[0, 1000, 3000, 6000, 9000] * units.m,
                                      colors=['#ff00ff', '#ff0000', '#00ff00', '#ffff00'], linewidth=1.5)
                 
+                # Bunkers Storm Motion Dots
+                rm, lm, mw = mpcalc.bunkers_storm_motion(p_stack[:,i,j], u_stack[:,i,j], v_stack[:,i,j], h_stack[:,i,j])
                 ax_ins.plot(rm[0].to('kt'), rm[1].to('kt'), 'ro', markersize=1.2)
                 ax_ins.plot(lm[0].to('kt'), lm[1].to('kt'), 'bo', markersize=1.2)
                 ax_ins.axis('off')
             except: continue
 
-    plt.title(f"HREF Mean SE Dynamics | Valid: {time_label}", loc='left', fontweight='bold', fontsize=14)
+    plt.title(f"HREF Mean SE Dynamics Overlay | Valid: {time_label}", loc='left', fontweight='bold', fontsize=14)
     plt.savefig(f"{OUTPUT_DIR}/hodo_f{f_str}.png", dpi=120, bbox_inches='tight')
     plt.close(); grbs.close()
-    print(f"DONE: F{f_str} saved.")
 
-# Test hours
+# TEST 5 HOURS
 for hr in [1, 6, 12, 18, 24]: process_hour(hr)
