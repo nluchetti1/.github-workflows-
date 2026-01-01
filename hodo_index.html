@@ -2,20 +2,20 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>SPC Style Dynamics Explorer</title>
+    <title>SPC Dynamics Dashboard</title>
     <style>
-        body { font-family: sans-serif; background: #0c0c0c; color: #eee; text-align: center; margin: 0; padding: 20px; }
-        .viewer { width: 95%; max-width: 1150px; margin: auto; border: 2px solid #333; background: #fff; }
+        body { font-family: sans-serif; background: #0c0c0c; color: #eee; text-align: center; padding: 20px; }
+        .viewer { width: 95%; max-width: 1100px; margin: auto; border: 2px solid #333; background: #fff; }
         #display { width: 100%; display: block; }
         .nav { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin: 20px 0; }
-        .btn { padding: 8px 12px; background: #222; border: 1px solid #444; color: #bbb; cursor: pointer; border-radius: 4px; font-weight: bold; }
+        .btn { padding: 10px 15px; background: #222; border: 1px solid #444; color: #bbb; cursor: pointer; border-radius: 4px; font-weight: bold; }
         .btn:hover { background: #ffcc00; color: #000; }
-        .legend { display: inline-block; padding: 15px; background: #1a1a1a; border-radius: 6px; font-size: 0.85em; margin-top: 15px; border: 1px solid #333; text-align: left; }
+        .legend { padding: 15px; background: #1a1a1a; border-radius: 6px; font-size: 0.85em; margin-top: 15px; border: 1px solid #333; display: inline-block; }
     </style>
 </head>
 <body>
     <div style="margin-bottom:20px;">
-        <a href="index.html" style="color:#4da6ff; text-decoration:none; margin-right:20px;">🌧️ Rainfall Dash</a>
+        <a href="index.html" style="color:#4da6ff; text-decoration:none; margin-right:20px;">🌧️ Back to Rainfall</a>
         <b style="color:white;">🌪️ Dynamics Explorer</b>
     </div>
 
@@ -23,8 +23,8 @@
     <div class="nav" id="nav"></div>
 
     <div class="legend">
-        <b>Hodograph Heights:</b> <span style="color:#ff00ff">0-1km</span> | <span style="color:#ff0000">1-3km</span> | <span style="color:#00ff00">3-6km</span> | <span style="color:#ffff00">6-9km</span><br>
-        <b>Storm Motion:</b> <span style="color:red">● Bunkers Right</span> | <span style="color:blue">● Bunkers Left</span> | Dashed Rings @ 20/40 kt
+        <b>Color Key:</b> <span style="color:#ff00ff">0-1km</span> | <span style="color:#ff0000">1-3km</span> | <span style="color:#00ff00">3-6km</span> | <span style="color:#ffff00">6-9km</span>
+        &nbsp;&nbsp; <span style="color:red">● Bunkers Right</span> | <span style="color:blue">● Bunkers Left</span>
     </div>
 
     <script>
@@ -34,7 +34,8 @@
 
         testHours.forEach(hr => {
             const f = hr.toString().padStart(2, '0');
-            const path = `hodo_data/hodo_f${f}.png`;
+            // Cache-busting prevents browser from showing old blank files
+            const path = `hodo_data/hodo_f${f}.png?v=${new Date().getTime()}`; 
             const b = document.createElement('div');
             b.className = 'btn'; b.innerText = `F${f}`;
             
