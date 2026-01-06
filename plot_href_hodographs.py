@@ -18,19 +18,22 @@ import traceback
 warnings.filterwarnings("ignore")
 
 # --- Configuration ---
-# ZOOMED DOMAIN: Carolinas & VA Focus
-REGION = [-84.0, -75.0, 33.0, 38.0]   
+# ZOOMED DOMAIN: Tight focus on SC/NC
+REGION = [-83.5, -75.5, 32.5, 37.5]   
 OUTPUT_DIR = "images"
 
 # --- TUNING SETTINGS ---
-GRID_SPACING = 30             
-BOX_SIZE = 85000              
+# Grid Spacing: 25 grid points (approx 75km spacing)
+GRID_SPACING = 25             
 
-# Preferred Levels (We will use as many of these as we can find)
-# Order: Surface -> Aloft
+# Box Size: 100km (100,000m). 
+# Large enough to see details clearly in this zoomed view.
+BOX_SIZE = 100000              
+
+# Preferred Levels (Surface -> Aloft)
 REQUESTED_LEVELS = [1000, 925, 850, 700, 500, 250]
 
-# CAPE Color Levels
+# CAPE Color Levels (Starts at 250)
 CAPE_LEVELS = np.arange(250, 5001, 250) 
 
 def get_latest_run_time():
@@ -74,7 +77,6 @@ def get_segment_color(pressure_start, pressure_end):
     Determines color based on the pressure level of the segment.
     Uses Standard Atmosphere approximation for heights.
     """
-    # Average pressure of the segment to decide its "height"
     avg_p = (pressure_start + pressure_end) / 2.0
     
     if avg_p >= 900:      # 0-1 km approx
@@ -83,21 +85,22 @@ def get_segment_color(pressure_start, pressure_end):
         return 'red'
     elif 500 <= avg_p < 700: # 3-6 km approx
         return 'green'
-    else:                 # > 6 km (Pressure < 500)
+    else:                 # > 6 km
         return 'gold'
 
 def plot_colored_hodograph(ax, u, v, levels):
     """
     Plots a multi-colored hodograph based on actual pressure levels found.
     """
-    # We loop through segments
+    # Loop through segments
     for k in range(len(u) - 1):
-        # Get pressure levels for this segment (e.g., 850 and 700)
         p_start = levels[k]
         p_end = levels[k+1]
         
         color = get_segment_color(p_start, p_end)
-        ax.plot([u[k], u[k+1]], [v[k], v[k+1]], color=color, linewidth=1.5)
+        
+        # INCREASED LINE WIDTH HERE (was 1.5, now 3.0)
+        ax.plot([u[k], u[k+1]], [v[k], v[k+1]], color=color, linewidth=3.0)
 
 def process_forecast_hour(date_obj, date_str, run, fhr):
     grib_file = download_href_mean(date_str, run, fhr)
@@ -108,7 +111,6 @@ def process_forecast_hour(date_obj, date_str, run, fhr):
         print(f"[f{fhr:02d}] Loading GRIB data...")
         
         # --- 1. Load Wind Data ---
-        # Note: We do NOT filter by level here yet, we load all isobaric levels
         ds_u = xr.open_dataset(grib_file, engine='cfgrib', 
                                filter_by_keys={'typeOfLevel': 'isobaricInhPa', 'shortName': 'u'})
         ds_v = xr.open_dataset(grib_file, engine='cfgrib', 
@@ -116,6 +118,7 @@ def process_forecast_hour(date_obj, date_str, run, fhr):
         ds_wind = xr.merge([ds_u, ds_v])
         
         # --- 2. Load CAPE Data ---
+        # Robust loading attempt
         try:
             ds_cape = xr.open_dataset(grib_file, engine='cfgrib', 
                                       filter_by_keys={'shortName': 'cape', 'typeOfLevel': 'surface'})
@@ -129,23 +132,18 @@ def process_forecast_hour(date_obj, date_str, run, fhr):
 
         # --- 3. ROBUST Level Filtering ---
         file_levels = ds_wind.isobaricInhPa.values
-        
-        # Find which of our requested levels actually exist in this file
-        # We sort them descending (1000 -> 200) for proper plotting
         available_levels = sorted([l for l in REQUESTED_LEVELS if l in file_levels], reverse=True)
         
         if len(available_levels) < 3:
-            print(f"Skipping f{fhr:02d}: Found {len(available_levels)} levels {available_levels}. Need at least 3.")
+            print(f"Skipping f{fhr:02d}: Not enough vertical levels.")
             return
         
         print(f"       Using levels: {available_levels}")
 
-        # Select only the available levels
         ds_wind = ds_wind.sel(isobaricInhPa=available_levels)
         u = ds_wind['u'].metpy.convert_units('kts')
         v = ds_wind['v'].metpy.convert_units('kts')
         
-        # Store level values for the color function
         level_values = available_levels
 
         # --- 4. Plotting Setup ---
@@ -154,31 +152,38 @@ def process_forecast_hour(date_obj, date_str, run, fhr):
         ax = fig.add_subplot(1, 1, 1, projection=ccrs.LambertConformal())
         ax.set_extent(REGION)
         
-        ax.add_feature(cfeature.COASTLINE, linewidth=1.5, zorder=10)
-        ax.add_feature(cfeature.BORDERS, linewidth=1.5, zorder=10)
-        ax.add_feature(cfeature.STATES, linewidth=1.0, edgecolor='black', zorder=10)
+        ax.add_feature(cfeature.COASTLINE, linewidth=2.0, zorder=10) # Thicker coast
+        ax.add_feature(cfeature.BORDERS, linewidth=2.0, zorder=10)
+        ax.add_feature(cfeature.STATES, linewidth=1.5, edgecolor='black', zorder=10)
 
         # --- 5. Plot CAPE (Background) ---
         if ds_cape is not None:
             cape_data = ds_cape['cape']
-            cape_masked = np.where(cape_data.values < 250, np.nan, cape_data.values)
+            
+            # STRICT MASKING: explicitly mask the array where values < 250
+            # This ensures they are not plotted at all (transparent)
+            cape_vals = cape_data.values
+            cape_masked = np.ma.masked_where(cape_vals < 250, cape_vals)
             
             cape_plot = ax.contourf(cape_data.longitude, cape_data.latitude, cape_masked, 
                                     levels=CAPE_LEVELS, cmap='nipy_spectral', 
-                                    extend='max', alpha=0.6, transform=ccrs.PlateCarree())
+                                    extend='max', alpha=0.5, transform=ccrs.PlateCarree())
             
+            # Make sure we don't accidentally plot a background color for the masked values
+            ax.set_facecolor('white')
+
             plt.colorbar(cape_plot, ax=ax, orientation='horizontal', pad=0.02, 
                          aspect=50, shrink=0.8, label='SBCAPE (J/kg)')
 
         # --- 6. ADD LEGEND ---
         legend_elements = [
-            mlines.Line2D([], [], color='magenta', lw=2, label='0-1 km (>900mb)'),
-            mlines.Line2D([], [], color='red', lw=2, label='1-3 km (900-700mb)'),
-            mlines.Line2D([], [], color='green', lw=2, label='3-6 km (700-500mb)'),
-            mlines.Line2D([], [], color='gold', lw=2, label='6-9 km (<500mb)')
+            mlines.Line2D([], [], color='magenta', lw=3, label='0-1 km (>900mb)'),
+            mlines.Line2D([], [], color='red', lw=3, label='1-3 km (900-700mb)'),
+            mlines.Line2D([], [], color='green', lw=3, label='3-6 km (700-500mb)'),
+            mlines.Line2D([], [], color='gold', lw=3, label='6-9 km (<500mb)')
         ]
         ax.legend(handles=legend_elements, loc='upper left', title="Hodograph Layers", 
-                  framealpha=0.9, fontsize=10, title_fontsize=11).set_zorder(100)
+                  framealpha=0.9, fontsize=12, title_fontsize=13).set_zorder(100)
 
         # --- 7. Plot Hodographs (Foreground) ---
         print(f"[f{fhr:02d}] Generating Colored Hodographs...")
@@ -210,12 +215,12 @@ def process_forecast_hour(date_obj, date_str, run, fhr):
                 sub_ax = ax.inset_axes(bounds, transform=ax.transData, zorder=20)
                 
                 h = Hodograph(sub_ax, component_range=80)
-                h.add_grid(increment=20, color='black', alpha=0.2, linewidth=0.5)
+                # Made grid slightly darker (alpha 0.3) so it's easier to see against white land
+                h.add_grid(increment=20, color='black', alpha=0.3, linewidth=0.5)
                 
                 u_profile = u_data[:, i, j]
                 v_profile = v_data[:, i, j]
                 
-                # Pass the actual levels to the plotter for dynamic coloring
                 plot_colored_hodograph(h.ax, u_profile, v_profile, level_values)
                 
                 sub_ax.set_xticklabels([])
@@ -231,12 +236,12 @@ def process_forecast_hour(date_obj, date_str, run, fhr):
         valid_str = valid_time.strftime("%a %H:%MZ") 
         
         plt.title(f"HREF Mean CAPE & Hodographs | Run: {date_str} {run}Z | Valid: {valid_str} (f{fhr:02d})", 
-                  fontsize=16, weight='bold')
+                  fontsize=18, weight='bold')
         
         os.makedirs(OUTPUT_DIR, exist_ok=True)
         out_path = f"{OUTPUT_DIR}/href_hodo_cape_{date_str}_{run}z_f{fhr:02d}.png"
         
-        plt.savefig(out_path, bbox_inches='tight', dpi=80) 
+        plt.savefig(out_path, bbox_inches='tight', dpi=90) 
         print(f"Saved: {out_path}")
         
         plt.close(fig)
