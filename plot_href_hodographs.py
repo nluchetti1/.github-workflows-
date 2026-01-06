@@ -30,14 +30,37 @@ BOX_SIZE = 100000
 # Preferred Levels (Surface -> Aloft)
 REQUESTED_LEVELS = [1000, 925, 850, 700, 500, 250]
 
-# --- CAPE SETTINGS ---
+# --- CAPE SETTINGS (UPDATED COLOR BAR) ---
+# Levels: 0 to 5000 in steps of 250 (20 bins total)
 CAPE_LEVELS = np.arange(0, 5001, 250) 
 
-# Create Custom Colormap (White for 0-250, Spectral for rest)
-n_bins = len(CAPE_LEVELS) - 1
-colors = plt.cm.nipy_spectral(np.linspace(0, 1, n_bins))
-colors[0] = [1, 1, 1, 1]  # Force first bin (0-250) to White (RGBA)
-CAPE_CMAP = mcolors.ListedColormap(colors)
+# Custom Hex Colors to match the standard Severe Weather / SPC style
+# Sequence: White -> Greys -> Blues -> Teals -> Yellows -> Oranges -> Reds -> Purples
+CAPE_COLORS = [
+    '#ffffff',  # 0-250 (White)
+    '#e0e0e0',  # 250-500 (Light Gray)
+    '#b0b0b0',  # 500-750 (Gray)
+    '#808080',  # 750-1000 (Dark Gray)
+    '#6495ed',  # 1000-1250 (Cornflower Blue)
+    '#4169e1',  # 1250-1500 (Royal Blue)
+    '#00bfff',  # 1500-1750 (Deep Sky Blue)
+    '#40e0d0',  # 1750-2000 (Turquoise)
+    '#adff2f',  # 2000-2250 (Green Yellow)
+    '#ffff00',  # 2250-2500 (Yellow)
+    '#ffda00',  # 2500-2750 (Gold)
+    '#ffa500',  # 2750-3000 (Orange)
+    '#ff8c00',  # 3000-3250 (Dark Orange)
+    '#ff4500',  # 3250-3500 (Orange Red)
+    '#ff0000',  # 3500-3750 (Red)
+    '#b22222',  # 3750-4000 (Firebrick)
+    '#8b0000',  # 4000-4250 (Dark Red)
+    '#800080',  # 4250-4500 (Purple)
+    '#9400d3',  # 4500-4750 (Dark Violet)
+    '#ff1493'   # 4750-5000+ (Deep Pink)
+]
+
+# Create the colormap from our list
+CAPE_CMAP = mcolors.ListedColormap(CAPE_COLORS)
 
 def get_latest_run_time():
     now = datetime.datetime.utcnow()
@@ -82,9 +105,7 @@ def get_segment_color(pressure_start, pressure_end):
     """
     avg_p = (pressure_start + pressure_end) / 2.0
     
-    # ADJUSTED LOGIC:
     # 0-1.5 km (Pink) -> avg_p >= 850
-    # This ensures that even if 1000mb is missing, the 925-850 layer is Pink.
     if avg_p >= 850:
         return 'magenta'
     # 1.5-3.0 km (Red) -> 700 to 850
@@ -104,7 +125,6 @@ def plot_colored_hodograph(ax, u, v, levels):
         p_start = levels[k]
         p_end = levels[k+1]
         color = get_segment_color(p_start, p_end)
-        # THICK LINES: linewidth=3.0
         ax.plot([u[k], u[k+1]], [v[k], v[k+1]], color=color, linewidth=3.0)
 
 def process_forecast_hour(date_obj, date_str, run, fhr):
@@ -163,22 +183,22 @@ def process_forecast_hour(date_obj, date_str, run, fhr):
         if ds_cape is not None:
             cape_data = ds_cape['cape']
             
-            # SANITY CHECK: Replace huge error values
+            # Sanity Check (Remove Error Codes)
             cape_vals = cape_data.values
             cape_vals = np.where(cape_vals > 20000, 0, cape_vals)
             cape_vals = np.nan_to_num(cape_vals, nan=0.0)
             
+            # Plot using NEW Custom Colormap
             cape_plot = ax.contourf(cape_data.longitude, cape_data.latitude, cape_vals, 
                                     levels=CAPE_LEVELS, cmap=CAPE_CMAP, 
-                                    extend='max', alpha=0.5, transform=ccrs.PlateCarree())
+                                    extend='max', alpha=0.6, transform=ccrs.PlateCarree())
             
             ax.set_facecolor('white')
             plt.colorbar(cape_plot, ax=ax, orientation='horizontal', pad=0.02, 
                          aspect=50, shrink=0.8, label='SBCAPE (J/kg)')
 
-        # --- 6. ADD LEGEND (Text Updated for Clarity) ---
+        # --- 6. ADD LEGEND ---
         legend_elements = [
-            # Updated label to explain the pressure range clearer
             mlines.Line2D([], [], color='magenta', lw=3, label='0-1.5 km (>850mb)'),
             mlines.Line2D([], [], color='red', lw=3, label='1.5-3 km (850-700mb)'),
             mlines.Line2D([], [], color='green', lw=3, label='3-6 km (700-500mb)'),
@@ -253,7 +273,7 @@ if __name__ == "__main__":
     print(f"Configuration: Region={REGION}")
     
     # Force update print to trigger git change
-    print("Applying Color Logic Fix (Pink >= 850mb)...")
+    print("Applying Custom CAPE Colorbar (Grey->Blue->Yellow->Red)...")
     
     for fhr in range(1, 49):
         process_forecast_hour(run_dt, date_str, run, fhr)
