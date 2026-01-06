@@ -18,21 +18,22 @@ import traceback
 warnings.filterwarnings("ignore")
 
 # --- Configuration ---
-# REGION: [West, East, South, North]
-# Focused on Mid-Atlantic/Carolinas
-REGION = [-86.0, -72.0, 32.0, 39.0]   
+
+# ZOOMED DOMAIN: Carolinas & VA Focus
+# West: -84 (Knoxville/Atlanta) | East: -75 (Offshore)
+# South: 33 (Charleston/Columbia) | North: 38 (Richmond/DC)
+REGION = [-84.0, -75.0, 33.0, 38.0]   
 
 OUTPUT_DIR = "images"
 
 # --- TUNING SETTINGS ---
-# Grid Spacing: 23 (approx 69km). 
-# Slightly increased spacing allows us to make the boxes bigger.
-GRID_SPACING = 23             
+# Grid Spacing: 30 grid points (approx 90km separation).
+GRID_SPACING = 30             
 
-# Box Size: 65000m (65km). 
-# Increased from 55km. This fills the gap created by the spacing
-# to maximize chart size without overlap.
-BOX_SIZE = 65000              
+# Box Size: 85000m (85km).
+# This is physically much larger because the map is zoomed in.
+# It fits inside the 90km spacing with a small 5km buffer.
+BOX_SIZE = 85000              
 
 # Levels for Hodographs
 REQUESTED_LEVELS = [1000, 925, 850, 700, 500, 250] * units.hPa
@@ -121,9 +122,13 @@ def process_forecast_hour(date_obj, date_str, run, fhr):
         ax = fig.add_subplot(1, 1, 1, projection=ccrs.LambertConformal())
         ax.set_extent(REGION)
         
+        # Added County Lines for better reference in zoomed view
         ax.add_feature(cfeature.COASTLINE, linewidth=1.5, zorder=10)
         ax.add_feature(cfeature.BORDERS, linewidth=1.5, zorder=10)
-        ax.add_feature(cfeature.STATES, linewidth=0.5, edgecolor='gray', zorder=10)
+        ax.add_feature(cfeature.STATES, linewidth=1.0, edgecolor='black', zorder=10)
+        
+        # Optional: Add Counties for context in zoomed view
+        # ax.add_feature(cfeature.USCOUNTIES.with_scale('5m'), linewidth=0.3, edgecolor='gray', zorder=9)
 
         # --- 5. Plot CAPE (Background) ---
         if ds_cape is not None:
@@ -173,7 +178,7 @@ def process_forecast_hour(date_obj, date_str, run, fhr):
                 
                 h = Hodograph(sub_ax, component_range=80)
                 h.add_grid(increment=20, color='black', alpha=0.2, linewidth=0.5)
-                h.plot(u_data[:, i, j], v_data[:, i, j], linewidth=1.2, color='navy')
+                h.plot(u_data[:, i, j], v_data[:, i, j], linewidth=1.5, color='navy') # Thicker line
                 
                 sub_ax.set_xticklabels([])
                 sub_ax.set_yticklabels([])
