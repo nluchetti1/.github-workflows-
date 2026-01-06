@@ -37,14 +37,18 @@ jobs:
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
         
-        # 1. Remove the junk index files so they don't cause confusion
+        # Remove junk files
         rm -f *.idx
         
-        # 2. Add the images
+        # Add the new images
         git add images/*.png
         
-        # 3. Commit (only if there are actual changes)
+        # Commit
         git commit -m "Auto-update HREF plots for $(date -u)" || echo "No changes to commit"
         
-        # 4. Push
+        # --- THE FIX ---
+        # Pull latest changes (rebase) to resolve the conflict
+        git pull --rebase
+        
+        # Now Push
         git push
