@@ -31,6 +31,7 @@ BOX_SIZE = 100000
 REQUESTED_LEVELS = [1000, 925, 850, 700, 500, 250]
 
 # --- CAPE SETTINGS ---
+# 0 to 5000 J/kg
 CAPE_LEVELS = np.arange(0, 5001, 250) 
 
 # Create Custom Colormap (White for 0-250, Spectral for rest)
@@ -78,7 +79,6 @@ def download_href_mean(date_str, run, fhr):
 def get_segment_color(pressure_start, pressure_end):
     """
     Determines color based on the pressure level of the segment.
-    Uses Standard Atmosphere approximation for heights.
     """
     avg_p = (pressure_start + pressure_end) / 2.0
     
@@ -116,16 +116,23 @@ def process_forecast_hour(date_obj, date_str, run, fhr):
                                filter_by_keys={'typeOfLevel': 'isobaricInhPa', 'shortName': 'v'})
         ds_wind = xr.merge([ds_u, ds_v])
         
-        # --- 2. Load CAPE Data ---
+        # --- 2. Load CAPE Data (More Robust) ---
+        ds_cape = None
+        cape_var_name = 'cape'
+
+        # Attempt 1: Strict Surface CAPE
         try:
             ds_cape = xr.open_dataset(grib_file, engine='cfgrib', 
                                       filter_by_keys={'shortName': 'cape', 'typeOfLevel': 'surface'})
+            print("       Found Surface CAPE.")
         except Exception:
+            # Attempt 2: Generic CAPE (might be MUCAPE or Best Cape)
             try:
                 ds_cape = xr.open_dataset(grib_file, engine='cfgrib', 
                                           filter_by_keys={'shortName': 'cape'})
+                print("       Found Generic CAPE (Caution: might differ from Surface).")
             except Exception:
-                print("CAPE not found. Plotting winds only.")
+                print("       CAPE not found. Plotting winds only.")
                 ds_cape = None
 
         # --- 3. Level Filtering ---
@@ -154,20 +161,31 @@ def process_forecast_hour(date_obj, date_str, run, fhr):
         # --- 5. Plot CAPE (Background) ---
         if ds_cape is not None:
             cape_data = ds_cape['cape']
-            cape_plot = ax.contourf(cape_data.longitude, cape_data.latitude, cape_data.values, 
+            
+            # --- SANITY CHECK ---
+            # If the GRIB has "missing" values coded as 9999 or infinity, replace them with 0
+            # This prevents the "Whole Map is Purple" bug
+            cape_vals = cape_data.values
+            cape_vals = np.where(cape_vals > 20000, 0, cape_vals) # Remove error codes
+            cape_vals = np.nan_to_num(cape_vals, nan=0.0)         # Remove NaNs
+            
+            # Check if this specific file is actually empty/near-zero
+            max_cape = np.max(cape_vals)
+            print(f"       Max CAPE in grid: {max_cape:.1f} J/kg")
+            
+            cape_plot = ax.contourf(cape_data.longitude, cape_data.latitude, cape_vals, 
                                     levels=CAPE_LEVELS, cmap=CAPE_CMAP, 
                                     extend='max', alpha=0.5, transform=ccrs.PlateCarree())
             ax.set_facecolor('white')
             plt.colorbar(cape_plot, ax=ax, orientation='horizontal', pad=0.02, 
                          aspect=50, shrink=0.8, label='SBCAPE (J/kg)')
 
-        # --- 6. ADD LEGEND (Updated) ---
+        # --- 6. ADD LEGEND ---
         legend_elements = [
             mlines.Line2D([], [], color='magenta', lw=3, label='0-1 km (>900mb)'),
             mlines.Line2D([], [], color='red', lw=3, label='1-3 km (900-700mb)'),
             mlines.Line2D([], [], color='green', lw=3, label='3-6 km (700-500mb)'),
             mlines.Line2D([], [], color='gold', lw=3, label='6-9 km (<500mb)'),
-            # NEW: Ring definition
             mlines.Line2D([], [], color='black', lw=0.5, alpha=0.5, label='Rings: 20 kts') 
         ]
         
