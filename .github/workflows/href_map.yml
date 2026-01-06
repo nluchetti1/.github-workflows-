@@ -1,48 +1,47 @@
-name: Generate HREF Hodograph Maps
+name: Update HREF Hodograph Map
 
 on:
   schedule:
-    # 15:30 UTC (for 12Z run) and 04:00 UTC (for 00Z run)
-    - cron: '30 15 * * *'
-    - cron: '0 4 * * *'
-  workflow_dispatch: # Allows manual trigger
+    # Runs at 03:20 UTC (for 00Z run) and 15:20 UTC (for 12Z run)
+    - cron: '20 3,15 * * *'
+  # Allows you to run it manually from the Actions tab for testing
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
-  build-and-plot:
+  build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write  # Needed to push the image back to the repo
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+    - name: Checkout Code
+      uses: actions/checkout@v4
 
-      - name: Setup Python & Micromamba
-        uses: mamba-org/setup-micromamba@v1
-        with:
-          micromamba-version: 'latest'
-          environment-name: href-env
-          create-args: >-
-            python=3.10
-            numpy
-            matplotlib
-            cartopy
-            xarray
-            cfgrib
-            metpy
-            requests
-            eccodes
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
 
-      - name: Run Plotting Script
-        shell: bash -l {0}
-        run: |
-          python plot_href_hodographs.py
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libeccodes0
+        pip install xarray matplotlib cartopy metpy requests numpy cfgrib ecmwflibs
 
-      - name: Commit and Push Image
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add images/*.png
-          # Only commit if there are changes
-          git commit -m "Update HREF hodograph map [skip ci]" || echo "No changes to commit"
-          git push
+    - name: Run Plotting Script
+      run: python plot_href_hodographs.py
+
+    - name: Commit and Push New Images
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        
+        # Add the images directory
+        git add images/*.png
+        
+        # Commit if there are changes
+        git commit -m "Auto-update HREF plots for $(date -u)" || exit 0
+        
+        # Push back to the repository
+        git push
