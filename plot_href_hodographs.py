@@ -31,13 +31,13 @@ BOX_SIZE = 100000
 REQUESTED_LEVELS = [1000, 925, 850, 700, 500, 250]
 
 # --- CAPE SETTINGS ---
-# 0 to 5000 J/kg
+# Define levels starting at 0 so we can control the bottom bin
 CAPE_LEVELS = np.arange(0, 5001, 250) 
 
 # Create Custom Colormap (White for 0-250, Spectral for rest)
 n_bins = len(CAPE_LEVELS) - 1
 colors = plt.cm.nipy_spectral(np.linspace(0, 1, n_bins))
-colors[0] = [1, 1, 1, 1]  # Force first bin (0-250) to White
+colors[0] = [1, 1, 1, 1]  # Force first bin (0-250) to White (RGBA)
 CAPE_CMAP = mcolors.ListedColormap(colors)
 
 def get_latest_run_time():
@@ -79,6 +79,7 @@ def download_href_mean(date_str, run, fhr):
 def get_segment_color(pressure_start, pressure_end):
     """
     Determines color based on the pressure level of the segment.
+    Uses Standard Atmosphere approximation for heights.
     """
     avg_p = (pressure_start + pressure_end) / 2.0
     
@@ -99,6 +100,7 @@ def plot_colored_hodograph(ax, u, v, levels):
         p_start = levels[k]
         p_end = levels[k+1]
         color = get_segment_color(p_start, p_end)
+        # THICK LINES: linewidth=3.0
         ax.plot([u[k], u[k+1]], [v[k], v[k+1]], color=color, linewidth=3.0)
 
 def process_forecast_hour(date_obj, date_str, run, fhr):
@@ -118,15 +120,13 @@ def process_forecast_hour(date_obj, date_str, run, fhr):
         
         # --- 2. Load CAPE Data (More Robust) ---
         ds_cape = None
-        cape_var_name = 'cape'
-
+        
         # Attempt 1: Strict Surface CAPE
         try:
             ds_cape = xr.open_dataset(grib_file, engine='cfgrib', 
                                       filter_by_keys={'shortName': 'cape', 'typeOfLevel': 'surface'})
-            print("       Found Surface CAPE.")
         except Exception:
-            # Attempt 2: Generic CAPE (might be MUCAPE or Best Cape)
+            # Attempt 2: Generic CAPE
             try:
                 ds_cape = xr.open_dataset(grib_file, engine='cfgrib', 
                                           filter_by_keys={'shortName': 'cape'})
@@ -162,21 +162,19 @@ def process_forecast_hour(date_obj, date_str, run, fhr):
         if ds_cape is not None:
             cape_data = ds_cape['cape']
             
-            # --- SANITY CHECK ---
-            # If the GRIB has "missing" values coded as 9999 or infinity, replace them with 0
-            # This prevents the "Whole Map is Purple" bug
+            # SANITY CHECK: Replace huge error values (>20000) with 0
             cape_vals = cape_data.values
-            cape_vals = np.where(cape_vals > 20000, 0, cape_vals) # Remove error codes
-            cape_vals = np.nan_to_num(cape_vals, nan=0.0)         # Remove NaNs
+            cape_vals = np.where(cape_vals > 20000, 0, cape_vals)
+            cape_vals = np.nan_to_num(cape_vals, nan=0.0)
             
-            # Check if this specific file is actually empty/near-zero
-            max_cape = np.max(cape_vals)
-            print(f"       Max CAPE in grid: {max_cape:.1f} J/kg")
-            
+            # Plot using Custom Colormap (White for 0-250)
             cape_plot = ax.contourf(cape_data.longitude, cape_data.latitude, cape_vals, 
                                     levels=CAPE_LEVELS, cmap=CAPE_CMAP, 
                                     extend='max', alpha=0.5, transform=ccrs.PlateCarree())
+            
+            # Ensure background is white for transparency
             ax.set_facecolor('white')
+            
             plt.colorbar(cape_plot, ax=ax, orientation='horizontal', pad=0.02, 
                          aspect=50, shrink=0.8, label='SBCAPE (J/kg)')
 
@@ -254,5 +252,10 @@ if __name__ == "__main__":
     run_dt = datetime.datetime.strptime(f"{date_str} {run}", "%Y%m%d %H")
     print(f"Starting HREF Hodograph + CAPE generation for {date_str} {run}Z")
     print(f"Configuration: Region={REGION}")
+    
+    # FORCE UPDATE: This print statement ensures the script file itself is different 
+    # than the one currently in the repo, forcing Git to acknowledge a change.
+    print("Applying Thick Lines and White CAPE update...")
+    
     for fhr in range(1, 49):
         process_forecast_hour(run_dt, date_str, run, fhr)
