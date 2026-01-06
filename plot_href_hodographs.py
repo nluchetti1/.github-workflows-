@@ -11,13 +11,20 @@ import requests
 import os
 import sys
 import warnings
+import traceback
 
-# Suppress warnings
+# Suppress warnings for cleaner logs
 warnings.filterwarnings("ignore")
 
 # --- Configuration ---
-REGION = [-98, -74, 24, 38]   # Southeast US
-GRID_SPACING = 10             # Hodograph density
+REGION = [-98, -74, 24, 38]   # Southeast US [West, East, South, North]
+
+# CRITICAL SETTINGS FOR PERFORMANCE
+GRID_SPACING = 50             # Skip every 50 points (approx every 150km). 
+                              # Lower = more density but MUCH slower.
+BOX_SIZE = 75000              # Hodograph width in meters (75km). 
+                              # Needs to be smaller than GRID_SPACING * 3000
+
 OUTPUT_DIR = "images"
 
 # Levels for Hodographs
@@ -68,33 +75,35 @@ def process_forecast_hour(date_str, run, fhr):
         return
 
     try:
-        # --- 1. Load Wind Data (Isobaric) ---
-        # Load U and V separately to avoid conflicts
+        print(f"[f{fhr:02d}] Loading GRIB data...")
+        
+        # --- 1. Load Wind Data ---
+        # Load U and V separately
         ds_u = xr.open_dataset(grib_file, engine='cfgrib', 
                                filter_by_keys={'typeOfLevel': 'isobaricInhPa', 'shortName': 'u'})
         ds_v = xr.open_dataset(grib_file, engine='cfgrib', 
                                filter_by_keys={'typeOfLevel': 'isobaricInhPa', 'shortName': 'v'})
         ds_wind = xr.merge([ds_u, ds_v])
         
-        # --- 2. Load CAPE Data (Surface) ---
-        # Improved filter: Explicitly ask for Surface CAPE to avoid ambiguity
+        # --- 2. Load CAPE Data ---
+        # Try specific surface level first, fallback to generic name
         try:
             ds_cape = xr.open_dataset(grib_file, engine='cfgrib', 
                                       filter_by_keys={'shortName': 'cape', 'typeOfLevel': 'surface'})
         except Exception:
             try:
-                # Fallback: Try just shortName if 'surface' fails
                 ds_cape = xr.open_dataset(grib_file, engine='cfgrib', 
                                           filter_by_keys={'shortName': 'cape'})
             except Exception:
-                print("CAPE not found in this file. Plotting winds only.")
+                print("CAPE not found. Plotting winds only.")
                 ds_cape = None
 
-        # --- 3. Filter Vertical Levels (Winds) ---
+        # --- 3. Filter Vertical Levels ---
         file_levels = ds_wind.isobaricInhPa.values
         levels_to_use = [l for l in REQUESTED_LEVELS.m if l in file_levels]
+        
         if len(levels_to_use) < 3:
-            print(f"Skipping f{fhr:02d}: Not enough vertical levels.")
+            print(f"Skipping f{fhr:02d}: Not enough vertical levels found.")
             return
 
         ds_wind = ds_wind.sel(isobaricInhPa=levels_to_use)
@@ -102,6 +111,7 @@ def process_forecast_hour(date_str, run, fhr):
         v = ds_wind['v'].metpy.convert_units('kts')
 
         # --- 4. Plotting Setup ---
+        print(f"[f{fhr:02d}] Initializing Map...")
         fig = plt.figure(figsize=(18, 12))
         ax = fig.add_subplot(1, 1, 1, projection=ccrs.LambertConformal())
         ax.set_extent(REGION)
@@ -113,6 +123,7 @@ def process_forecast_hour(date_str, run, fhr):
         # --- 5. Plot CAPE (Background) ---
         if ds_cape is not None:
             cape = ds_cape['cape']
+            # Plot contours
             cape_plot = ax.contourf(cape.longitude, cape.latitude, cape.values, 
                                     levels=CAPE_LEVELS, cmap='nipy_spectral', 
                                     extend='max', alpha=0.6, transform=ccrs.PlateCarree())
@@ -121,48 +132,58 @@ def process_forecast_hour(date_str, run, fhr):
                          aspect=50, shrink=0.8, label='SBCAPE (J/kg)')
 
         # --- 6. Plot Hodographs (Foreground) ---
+        print(f"[f{fhr:02d}] Generating Hodographs (Spacing: {GRID_SPACING})...")
+        
         lons = u.longitude.values
         lats = u.latitude.values
         u_data = u.values
         v_data = v.values
 
-        # Set Hodograph Size (in Meters for Lambert Conformal)
-        # 0.9 was too small (meters). 75km (75000m) is roughly 0.7 degrees.
-        box_size = 75000 
-
+        counter = 0
+        
+        # Loop through grid
         for i in range(0, lons.shape[0], GRID_SPACING):
             for j in range(0, lons.shape[1], GRID_SPACING):
                 
+                # Basic NaN check
                 if np.isnan(u_data[:, i, j]).any(): continue
                 
                 curr_lon = lons[i, j]
                 curr_lat = lats[i, j]
                 
-                # Check Bounds (Longitude correction)
+                # Longitude correction (0-360 to -180/180)
                 check_lon = curr_lon - 360 if curr_lon > 180 else curr_lon
                 
+                # Check if point is inside our region box
                 if not (REGION[0] < check_lon < REGION[1] and REGION[2] < curr_lat < REGION[3]):
                     continue
 
-                # Transform Lat/Lon to Project Coordinates (Meters)
+                # Transform Lat/Lon to Projected Meters
                 try:
                     proj_pnt = ax.projection.transform_point(curr_lon, curr_lat, ccrs.PlateCarree())
                 except: continue
 
                 # Define Bounds in PROJECTED coordinates (Meters)
-                bounds = [proj_pnt[0] - box_size/2, proj_pnt[1] - box_size/2, box_size, box_size]
+                # This places the box centered on the grid point
+                bounds = [proj_pnt[0] - BOX_SIZE/2, proj_pnt[1] - BOX_SIZE/2, BOX_SIZE, BOX_SIZE]
                 
-                # FIX 1: Use ax.transData instead of ax.projection
-                # transData handles the data coordinates (which are in meters here)
+                # Create the inset axis
+                # FIX: Use ax.transData to handle the map coordinates correctly
                 sub_ax = ax.inset_axes(bounds, transform=ax.transData, zorder=20)
                 
+                # Create Hodograph
                 h = Hodograph(sub_ax, component_range=80)
                 h.add_grid(increment=20, color='black', alpha=0.2, linewidth=0.5)
-                h.plot(u_data[:, i, j], v_data[:, i, j], linewidth=1.0, color='navy')
+                h.plot(u_data[:, i, j], v_data[:, i, j], linewidth=1.2, color='navy')
                 
+                # Hide axes labels
                 sub_ax.set_xticklabels([])
                 sub_ax.set_yticklabels([])
                 sub_ax.axis('off')
+                
+                counter += 1
+
+        print(f"[f{fhr:02d}] Plotted {counter} hodographs. Saving image...")
 
         # Save and Close
         title_time = f"f{fhr:02d}"
@@ -170,23 +191,26 @@ def process_forecast_hour(date_str, run, fhr):
         
         os.makedirs(OUTPUT_DIR, exist_ok=True)
         out_path = f"{OUTPUT_DIR}/href_hodo_cape_{date_str}_{run}z_f{fhr:02d}.png"
-        plt.savefig(out_path, bbox_inches='tight', dpi=100)
-        print(f"Saved: {out_path}")
         
-        plt.close(fig)
+        # Use lower DPI (80) first to ensure speed, then increase if stable
+        plt.savefig(out_path, bbox_inches='tight', dpi=80) 
+        print(f"Success: {out_path}")
+        
+        plt.close(fig) # Crucial to free memory
 
     except Exception as e:
-        # Print full traceback if needed, but simple error for now
         print(f"Error processing f{fhr:02d}: {e}")
-        import traceback
-        traceback.print_exc() # Useful to see exact line of failure
+        traceback.print_exc()
     finally:
+        # Cleanup GRIB file
         if os.path.exists(grib_file):
             os.remove(grib_file)
 
 if __name__ == "__main__":
     date_str, run = get_latest_run_time()
     print(f"Starting HREF Hodograph + CAPE generation for {date_str} {run}Z")
+    print(f"Configuration: Grid Spacing={GRID_SPACING}, Box Size={BOX_SIZE}m")
     
+    # Process f01 to f48
     for fhr in range(1, 49):
         process_forecast_hour(date_str, run, fhr)
