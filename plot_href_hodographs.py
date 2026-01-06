@@ -7,30 +7,31 @@ from metpy.plots import Hodograph
 from metpy.units import units
 import numpy as np
 import datetime
+from datetime import timedelta # Added for time calculation
 import requests
 import os
 import sys
 import warnings
 import traceback
 
-# Suppress warnings for cleaner logs
+# Suppress warnings
 warnings.filterwarnings("ignore")
 
 # --- Configuration ---
-REGION = [-98, -74, 24, 38]   # Southeast US [West, East, South, North]
-
-# CRITICAL SETTINGS FOR PERFORMANCE
-GRID_SPACING = 50             # Skip every 50 points (approx every 150km). 
-                              # Lower = more density but MUCH slower.
-BOX_SIZE = 75000              # Hodograph width in meters (75km). 
-                              # Needs to be smaller than GRID_SPACING * 3000
-
+REGION = [-98, -74, 24, 38]   # Southeast US
 OUTPUT_DIR = "images"
+
+# --- TUNING SETTINGS ---
+# Grid Spacing: 35 skips fewer points than 50, adding more hodographs.
+# Box Size: 110000m (110km) makes them significantly larger and easier to read.
+GRID_SPACING = 35             
+BOX_SIZE = 110000              
 
 # Levels for Hodographs
 REQUESTED_LEVELS = [1000, 925, 850, 700, 500, 250] * units.hPa
 
-# CAPE Color Levels (J/kg)
+# CAPE Color Levels
+# We will mask anything below the first level so it appears white/transparent
 CAPE_LEVELS = np.arange(250, 5001, 250) 
 
 def get_latest_run_time():
@@ -44,7 +45,7 @@ def get_latest_run_time():
     else:
         run = '12'
         date = now - datetime.timedelta(days=1)
-    return date.strftime('%Y%m%d'), run
+    return date.strftime('%Y%m%d'), run, date
 
 def download_href_mean(date_str, run, fhr):
     """Downloads the HREF Mean file for a specific forecast hour."""
@@ -69,7 +70,7 @@ def download_href_mean(date_str, run, fhr):
         print(f"Download failed: {e}")
         return None
 
-def process_forecast_hour(date_str, run, fhr):
+def process_forecast_hour(date_obj, date_str, run, fhr):
     grib_file = download_href_mean(date_str, run, fhr)
     if not grib_file:
         return
@@ -78,7 +79,6 @@ def process_forecast_hour(date_str, run, fhr):
         print(f"[f{fhr:02d}] Loading GRIB data...")
         
         # --- 1. Load Wind Data ---
-        # Load U and V separately
         ds_u = xr.open_dataset(grib_file, engine='cfgrib', 
                                filter_by_keys={'typeOfLevel': 'isobaricInhPa', 'shortName': 'u'})
         ds_v = xr.open_dataset(grib_file, engine='cfgrib', 
@@ -86,7 +86,6 @@ def process_forecast_hour(date_str, run, fhr):
         ds_wind = xr.merge([ds_u, ds_v])
         
         # --- 2. Load CAPE Data ---
-        # Try specific surface level first, fallback to generic name
         try:
             ds_cape = xr.open_dataset(grib_file, engine='cfgrib', 
                                       filter_by_keys={'shortName': 'cape', 'typeOfLevel': 'surface'})
@@ -122,9 +121,13 @@ def process_forecast_hour(date_str, run, fhr):
 
         # --- 5. Plot CAPE (Background) ---
         if ds_cape is not None:
-            cape = ds_cape['cape']
-            # Plot contours
-            cape_plot = ax.contourf(cape.longitude, cape.latitude, cape.values, 
+            cape_data = ds_cape['cape']
+            
+            # MASKING: Values < 250 become NaN (transparent)
+            # This fixes the "purple plot" issue
+            cape_masked = np.where(cape_data.values < 250, np.nan, cape_data.values)
+            
+            cape_plot = ax.contourf(cape_data.longitude, cape_data.latitude, cape_masked, 
                                     levels=CAPE_LEVELS, cmap='nipy_spectral', 
                                     extend='max', alpha=0.6, transform=ccrs.PlateCarree())
             
@@ -141,76 +144,73 @@ def process_forecast_hour(date_str, run, fhr):
 
         counter = 0
         
-        # Loop through grid
         for i in range(0, lons.shape[0], GRID_SPACING):
             for j in range(0, lons.shape[1], GRID_SPACING):
                 
-                # Basic NaN check
                 if np.isnan(u_data[:, i, j]).any(): continue
                 
                 curr_lon = lons[i, j]
                 curr_lat = lats[i, j]
                 
-                # Longitude correction (0-360 to -180/180)
                 check_lon = curr_lon - 360 if curr_lon > 180 else curr_lon
                 
-                # Check if point is inside our region box
                 if not (REGION[0] < check_lon < REGION[1] and REGION[2] < curr_lat < REGION[3]):
                     continue
 
-                # Transform Lat/Lon to Projected Meters
                 try:
                     proj_pnt = ax.projection.transform_point(curr_lon, curr_lat, ccrs.PlateCarree())
                 except: continue
 
-                # Define Bounds in PROJECTED coordinates (Meters)
-                # This places the box centered on the grid point
+                # Inset Axis
                 bounds = [proj_pnt[0] - BOX_SIZE/2, proj_pnt[1] - BOX_SIZE/2, BOX_SIZE, BOX_SIZE]
-                
-                # Create the inset axis
-                # FIX: Use ax.transData to handle the map coordinates correctly
                 sub_ax = ax.inset_axes(bounds, transform=ax.transData, zorder=20)
                 
-                # Create Hodograph
                 h = Hodograph(sub_ax, component_range=80)
                 h.add_grid(increment=20, color='black', alpha=0.2, linewidth=0.5)
                 h.plot(u_data[:, i, j], v_data[:, i, j], linewidth=1.2, color='navy')
                 
-                # Hide axes labels
                 sub_ax.set_xticklabels([])
                 sub_ax.set_yticklabels([])
                 sub_ax.axis('off')
                 
                 counter += 1
 
-        print(f"[f{fhr:02d}] Plotted {counter} hodographs. Saving image...")
+        print(f"[f{fhr:02d}] Plotted {counter} hodographs.")
 
-        # Save and Close
-        title_time = f"f{fhr:02d}"
-        plt.title(f"HREF Mean CAPE & Hodographs | Run: {date_str} {run}Z | Forecast: +{title_time}", fontsize=16, weight='bold')
+        # --- 7. Title with Valid Time ---
+        # Calculate valid time from run time + forecast hour
+        valid_time = date_obj + timedelta(hours=fhr)
+        valid_str = valid_time.strftime("%a %H:%MZ") # e.g., "Tue 18:00Z"
+        
+        plt.title(f"HREF Mean CAPE & Hodographs | Run: {date_str} {run}Z | Valid: {valid_str} (f{fhr:02d})", 
+                  fontsize=16, weight='bold')
         
         os.makedirs(OUTPUT_DIR, exist_ok=True)
         out_path = f"{OUTPUT_DIR}/href_hodo_cape_{date_str}_{run}z_f{fhr:02d}.png"
         
-        # Use lower DPI (80) first to ensure speed, then increase if stable
         plt.savefig(out_path, bbox_inches='tight', dpi=80) 
-        print(f"Success: {out_path}")
+        print(f"Saved: {out_path}")
         
-        plt.close(fig) # Crucial to free memory
+        plt.close(fig)
 
     except Exception as e:
         print(f"Error processing f{fhr:02d}: {e}")
         traceback.print_exc()
     finally:
-        # Cleanup GRIB file
         if os.path.exists(grib_file):
             os.remove(grib_file)
 
 if __name__ == "__main__":
-    date_str, run = get_latest_run_time()
-    print(f"Starting HREF Hodograph + CAPE generation for {date_str} {run}Z")
-    print(f"Configuration: Grid Spacing={GRID_SPACING}, Box Size={BOX_SIZE}m")
+    # Get run time object and string
+    date_str, run, date_obj = get_latest_run_time()
     
-    # Process f01 to f48
+    # Adjust run time object to have correct hour for calculation
+    # (The get_latest_run_time function returns a date object centered on midnight or prev day, 
+    # we need to force the hour to match the run variable)
+    run_dt = datetime.datetime.strptime(f"{date_str} {run}", "%Y%m%d %H")
+    
+    print(f"Starting HREF Hodograph + CAPE generation for {date_str} {run}Z")
+    
     for fhr in range(1, 49):
-        process_forecast_hour(date_str, run, fhr)
+        # Pass the datetime object for accurate time math
+        process_forecast_hour(run_dt, date_str, run, fhr)
