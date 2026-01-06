@@ -7,7 +7,7 @@ from metpy.plots import Hodograph
 from metpy.units import units
 import numpy as np
 import datetime
-from datetime import timedelta # Added for time calculation
+from datetime import timedelta
 import requests
 import os
 import sys
@@ -18,14 +18,20 @@ import traceback
 warnings.filterwarnings("ignore")
 
 # --- Configuration ---
-REGION = [-98, -74, 24, 38]   # Southeast US
+# REGION: [West, East, South, North]
+# Focused on Mid-Atlantic/Carolinas (KY/TN/GA border to Offshore)
+REGION = [-86.0, -72.0, 32.0, 39.0]   
+
 OUTPUT_DIR = "images"
 
 # --- TUNING SETTINGS ---
-# Grid Spacing: 35 skips fewer points than 50, adding more hodographs.
-# Box Size: 110000m (110km) makes them significantly larger and easier to read.
-GRID_SPACING = 35             
-BOX_SIZE = 110000              
+# Grid Spacing: 20 = approx every 60km (37 miles). 
+# This is dense enough to likely catch KINT and KRDU separately.
+GRID_SPACING = 20             
+
+# Box Size: 55km (55000m). 
+# Needs to be slightly smaller than the spacing (60km) to avoid overlap.
+BOX_SIZE = 55000              
 
 # Levels for Hodographs
 REQUESTED_LEVELS = [1000, 925, 850, 700, 500, 250] * units.hPa
@@ -124,7 +130,6 @@ def process_forecast_hour(date_obj, date_str, run, fhr):
             cape_data = ds_cape['cape']
             
             # MASKING: Values < 250 become NaN (transparent)
-            # This fixes the "purple plot" issue
             cape_masked = np.where(cape_data.values < 250, np.nan, cape_data.values)
             
             cape_plot = ax.contourf(cape_data.longitude, cape_data.latitude, cape_masked, 
@@ -154,6 +159,7 @@ def process_forecast_hour(date_obj, date_str, run, fhr):
                 
                 check_lon = curr_lon - 360 if curr_lon > 180 else curr_lon
                 
+                # Check Bounds
                 if not (REGION[0] < check_lon < REGION[1] and REGION[2] < curr_lat < REGION[3]):
                     continue
 
@@ -178,9 +184,8 @@ def process_forecast_hour(date_obj, date_str, run, fhr):
         print(f"[f{fhr:02d}] Plotted {counter} hodographs.")
 
         # --- 7. Title with Valid Time ---
-        # Calculate valid time from run time + forecast hour
         valid_time = date_obj + timedelta(hours=fhr)
-        valid_str = valid_time.strftime("%a %H:%MZ") # e.g., "Tue 18:00Z"
+        valid_str = valid_time.strftime("%a %H:%MZ") 
         
         plt.title(f"HREF Mean CAPE & Hodographs | Run: {date_str} {run}Z | Valid: {valid_str} (f{fhr:02d})", 
                   fontsize=16, weight='bold')
@@ -201,16 +206,11 @@ def process_forecast_hour(date_obj, date_str, run, fhr):
             os.remove(grib_file)
 
 if __name__ == "__main__":
-    # Get run time object and string
     date_str, run, date_obj = get_latest_run_time()
-    
-    # Adjust run time object to have correct hour for calculation
-    # (The get_latest_run_time function returns a date object centered on midnight or prev day, 
-    # we need to force the hour to match the run variable)
     run_dt = datetime.datetime.strptime(f"{date_str} {run}", "%Y%m%d %H")
     
     print(f"Starting HREF Hodograph + CAPE generation for {date_str} {run}Z")
+    print(f"Configuration: Region={REGION}")
     
     for fhr in range(1, 49):
-        # Pass the datetime object for accurate time math
         process_forecast_hour(run_dt, date_str, run, fhr)
