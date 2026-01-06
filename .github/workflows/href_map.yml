@@ -1,22 +1,9 @@
-name: Update HREF Hodograph Map
-
-on:
-  schedule:
-    # Runs at 03:20 UTC (for 00Z run) and 15:20 UTC (for 12Z run)
-    - cron: '20 3,15 * * *'
-  # Allows you to run it manually from the Actions tab for testing
-  workflow_dispatch:
-
-permissions:
-  contents: write
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
+steps:
+    # UPDATE THIS STEP: Use the token to checkout
     - name: Checkout Code
       uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.ACTION_TOKEN }}
 
     - name: Set up Python
       uses: actions/setup-python@v4
@@ -37,11 +24,10 @@ jobs:
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
         
-        # Add the images directory
         git add images/*.png
         
         # Commit if there are changes
         git commit -m "Auto-update HREF plots for $(date -u)" || exit 0
         
-        # Push back to the repository
+        # UPDATE THIS COMMAND: Push using the token
         git push
