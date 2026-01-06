@@ -1,6 +1,6 @@
 import xarray as xr
 import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
+import matplotlib.lines as mlines
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 from metpy.plots import Hodograph
@@ -18,24 +18,16 @@ import traceback
 warnings.filterwarnings("ignore")
 
 # --- Configuration ---
-
 # ZOOMED DOMAIN: Carolinas & VA Focus
-# West: -84 (Knoxville/Atlanta) | East: -75 (Offshore)
-# South: 33 (Charleston/Columbia) | North: 38 (Richmond/DC)
 REGION = [-84.0, -75.0, 33.0, 38.0]   
-
 OUTPUT_DIR = "images"
 
 # --- TUNING SETTINGS ---
-# Grid Spacing: 30 grid points (approx 90km separation).
 GRID_SPACING = 30             
-
-# Box Size: 85000m (85km).
-# This is physically much larger because the map is zoomed in.
-# It fits inside the 90km spacing with a small 5km buffer.
 BOX_SIZE = 85000              
 
-# Levels for Hodographs
+# Levels for Hodographs (Must be in descending pressure order for the logic below)
+# 1000->925 (Pink), 925->700 (Red), 700->500 (Green), 500->250 (Yellow)
 REQUESTED_LEVELS = [1000, 925, 850, 700, 500, 250] * units.hPa
 
 # CAPE Color Levels
@@ -77,6 +69,31 @@ def download_href_mean(date_str, run, fhr):
         print(f"Download failed: {e}")
         return None
 
+def plot_colored_hodograph(ax, u, v):
+    """
+    Manually plots a multi-colored hodograph line segment by segment.
+    
+    Mapping Strategy (Standard Atmosphere Approx):
+    - Segment 0 (1000->925mb): ~0-750m   -> PINK (Magenta)
+    - Segment 1 (925->850mb):  ~750-1500m -> RED
+    - Segment 2 (850->700mb):  ~1.5-3.0km -> RED
+    - Segment 3 (700->500mb):  ~3.0-5.5km -> GREEN
+    - Segment 4 (500->250mb):  ~5.5-10km  -> YELLOW
+    """
+    # Colors corresponding to the segments between the 6 levels
+    # Levels: [1000, 925, 850, 700, 500, 250]
+    # Segments:   0    1    2    3    4
+    segment_colors = ['magenta', 'red', 'red', 'green', 'gold']
+    
+    # We loop through len(u)-1 segments
+    for k in range(len(u) - 1):
+        if k < len(segment_colors):
+            color = segment_colors[k]
+        else:
+            color = 'gold' # Fallback
+            
+        ax.plot([u[k], u[k+1]], [v[k], v[k+1]], color=color, linewidth=1.5)
+
 def process_forecast_hour(date_obj, date_str, run, fhr):
     grib_file = download_href_mean(date_str, run, fhr)
     if not grib_file:
@@ -106,13 +123,23 @@ def process_forecast_hour(date_obj, date_str, run, fhr):
 
         # --- 3. Filter Vertical Levels ---
         file_levels = ds_wind.isobaricInhPa.values
-        levels_to_use = [l for l in REQUESTED_LEVELS.m if l in file_levels]
+        # Ensure we get them in the order we defined (1000 -> 250) for the color logic to work
+        # We find indices of our requested levels in the file
+        u_list = []
+        v_list = []
         
-        if len(levels_to_use) < 3:
-            print(f"Skipping f{fhr:02d}: Not enough vertical levels found.")
+        # Manually select levels in order to ensure the arrays are sorted 1000->250
+        found_levels = True
+        for lev in REQUESTED_LEVELS.m:
+            if lev not in file_levels:
+                found_levels = False
+                break
+        
+        if not found_levels:
+            print(f"Skipping f{fhr:02d}: Missing required vertical levels.")
             return
 
-        ds_wind = ds_wind.sel(isobaricInhPa=levels_to_use)
+        ds_wind = ds_wind.sel(isobaricInhPa=REQUESTED_LEVELS.m)
         u = ds_wind['u'].metpy.convert_units('kts')
         v = ds_wind['v'].metpy.convert_units('kts')
 
@@ -122,19 +149,13 @@ def process_forecast_hour(date_obj, date_str, run, fhr):
         ax = fig.add_subplot(1, 1, 1, projection=ccrs.LambertConformal())
         ax.set_extent(REGION)
         
-        # Added County Lines for better reference in zoomed view
         ax.add_feature(cfeature.COASTLINE, linewidth=1.5, zorder=10)
         ax.add_feature(cfeature.BORDERS, linewidth=1.5, zorder=10)
         ax.add_feature(cfeature.STATES, linewidth=1.0, edgecolor='black', zorder=10)
-        
-        # Optional: Add Counties for context in zoomed view
-        # ax.add_feature(cfeature.USCOUNTIES.with_scale('5m'), linewidth=0.3, edgecolor='gray', zorder=9)
 
         # --- 5. Plot CAPE (Background) ---
         if ds_cape is not None:
             cape_data = ds_cape['cape']
-            
-            # Mask values < 250 as transparent
             cape_masked = np.where(cape_data.values < 250, np.nan, cape_data.values)
             
             cape_plot = ax.contourf(cape_data.longitude, cape_data.latitude, cape_masked, 
@@ -144,8 +165,20 @@ def process_forecast_hour(date_obj, date_str, run, fhr):
             plt.colorbar(cape_plot, ax=ax, orientation='horizontal', pad=0.02, 
                          aspect=50, shrink=0.8, label='SBCAPE (J/kg)')
 
-        # --- 6. Plot Hodographs (Foreground) ---
-        print(f"[f{fhr:02d}] Generating Hodographs (Spacing: {GRID_SPACING})...")
+        # --- 6. ADD LEGEND FOR HODOGRAPHS ---
+        # Create custom legend handles
+        legend_elements = [
+            mlines.Line2D([], [], color='magenta', lw=2, label='0-1 km'),
+            mlines.Line2D([], [], color='red', lw=2, label='1-3 km'),
+            mlines.Line2D([], [], color='green', lw=2, label='3-6 km'),
+            mlines.Line2D([], [], color='gold', lw=2, label='6-9 km')
+        ]
+        # Place legend in upper left (zorder must be high to sit on top of map)
+        ax.legend(handles=legend_elements, loc='upper left', title="Hodograph Height (AGL)", 
+                  framealpha=0.9, fontsize=10, title_fontsize=11).set_zorder(100)
+
+        # --- 7. Plot Hodographs (Foreground) ---
+        print(f"[f{fhr:02d}] Generating Colored Hodographs...")
         
         lons = u.longitude.values
         lats = u.latitude.values
@@ -161,10 +194,8 @@ def process_forecast_hour(date_obj, date_str, run, fhr):
                 
                 curr_lon = lons[i, j]
                 curr_lat = lats[i, j]
-                
                 check_lon = curr_lon - 360 if curr_lon > 180 else curr_lon
                 
-                # Check Bounds
                 if not (REGION[0] < check_lon < REGION[1] and REGION[2] < curr_lat < REGION[3]):
                     continue
 
@@ -172,13 +203,19 @@ def process_forecast_hour(date_obj, date_str, run, fhr):
                     proj_pnt = ax.projection.transform_point(curr_lon, curr_lat, ccrs.PlateCarree())
                 except: continue
 
-                # Inset Axis
                 bounds = [proj_pnt[0] - BOX_SIZE/2, proj_pnt[1] - BOX_SIZE/2, BOX_SIZE, BOX_SIZE]
                 sub_ax = ax.inset_axes(bounds, transform=ax.transData, zorder=20)
                 
+                # Setup Hodograph
                 h = Hodograph(sub_ax, component_range=80)
                 h.add_grid(increment=20, color='black', alpha=0.2, linewidth=0.5)
-                h.plot(u_data[:, i, j], v_data[:, i, j], linewidth=1.5, color='navy') # Thicker line
+                
+                # Extract profile for this point
+                u_profile = u_data[:, i, j]
+                v_profile = v_data[:, i, j]
+                
+                # Custom Colored Plotting
+                plot_colored_hodograph(h.ax, u_profile, v_profile)
                 
                 sub_ax.set_xticklabels([])
                 sub_ax.set_yticklabels([])
@@ -188,7 +225,7 @@ def process_forecast_hour(date_obj, date_str, run, fhr):
 
         print(f"[f{fhr:02d}] Plotted {counter} hodographs.")
 
-        # --- 7. Title with Valid Time ---
+        # --- 8. Title ---
         valid_time = date_obj + timedelta(hours=fhr)
         valid_str = valid_time.strftime("%a %H:%MZ") 
         
