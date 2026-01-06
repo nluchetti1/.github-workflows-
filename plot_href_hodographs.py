@@ -31,7 +31,6 @@ BOX_SIZE = 100000
 REQUESTED_LEVELS = [1000, 925, 850, 700, 500, 250]
 
 # --- CAPE SETTINGS ---
-# Define levels starting at 0 so we can control the bottom bin
 CAPE_LEVELS = np.arange(0, 5001, 250) 
 
 # Create Custom Colormap (White for 0-250, Spectral for rest)
@@ -83,13 +82,18 @@ def get_segment_color(pressure_start, pressure_end):
     """
     avg_p = (pressure_start + pressure_end) / 2.0
     
-    if avg_p >= 900:      # 0-1 km approx
+    # ADJUSTED LOGIC:
+    # 0-1.5 km (Pink) -> avg_p >= 850
+    # This ensures that even if 1000mb is missing, the 925-850 layer is Pink.
+    if avg_p >= 850:
         return 'magenta'
-    elif 700 <= avg_p < 900: # 1-3 km approx
+    # 1.5-3.0 km (Red) -> 700 to 850
+    elif 700 <= avg_p < 850: 
         return 'red'
-    elif 500 <= avg_p < 700: # 3-6 km approx
+    # 3.0-5.5 km (Green) -> 500 to 700
+    elif 500 <= avg_p < 700: 
         return 'green'
-    else:                 # > 6 km
+    else:
         return 'gold'
 
 def plot_colored_hodograph(ax, u, v, levels):
@@ -118,19 +122,16 @@ def process_forecast_hour(date_obj, date_str, run, fhr):
                                filter_by_keys={'typeOfLevel': 'isobaricInhPa', 'shortName': 'v'})
         ds_wind = xr.merge([ds_u, ds_v])
         
-        # --- 2. Load CAPE Data (More Robust) ---
+        # --- 2. Load CAPE Data ---
         ds_cape = None
-        
-        # Attempt 1: Strict Surface CAPE
         try:
             ds_cape = xr.open_dataset(grib_file, engine='cfgrib', 
                                       filter_by_keys={'shortName': 'cape', 'typeOfLevel': 'surface'})
         except Exception:
-            # Attempt 2: Generic CAPE
             try:
                 ds_cape = xr.open_dataset(grib_file, engine='cfgrib', 
                                           filter_by_keys={'shortName': 'cape'})
-                print("       Found Generic CAPE (Caution: might differ from Surface).")
+                print("       Found Generic CAPE.")
             except Exception:
                 print("       CAPE not found. Plotting winds only.")
                 ds_cape = None
@@ -162,26 +163,24 @@ def process_forecast_hour(date_obj, date_str, run, fhr):
         if ds_cape is not None:
             cape_data = ds_cape['cape']
             
-            # SANITY CHECK: Replace huge error values (>20000) with 0
+            # SANITY CHECK: Replace huge error values
             cape_vals = cape_data.values
             cape_vals = np.where(cape_vals > 20000, 0, cape_vals)
             cape_vals = np.nan_to_num(cape_vals, nan=0.0)
             
-            # Plot using Custom Colormap (White for 0-250)
             cape_plot = ax.contourf(cape_data.longitude, cape_data.latitude, cape_vals, 
                                     levels=CAPE_LEVELS, cmap=CAPE_CMAP, 
                                     extend='max', alpha=0.5, transform=ccrs.PlateCarree())
             
-            # Ensure background is white for transparency
             ax.set_facecolor('white')
-            
             plt.colorbar(cape_plot, ax=ax, orientation='horizontal', pad=0.02, 
                          aspect=50, shrink=0.8, label='SBCAPE (J/kg)')
 
-        # --- 6. ADD LEGEND ---
+        # --- 6. ADD LEGEND (Text Updated for Clarity) ---
         legend_elements = [
-            mlines.Line2D([], [], color='magenta', lw=3, label='0-1 km (>900mb)'),
-            mlines.Line2D([], [], color='red', lw=3, label='1-3 km (900-700mb)'),
+            # Updated label to explain the pressure range clearer
+            mlines.Line2D([], [], color='magenta', lw=3, label='0-1.5 km (>850mb)'),
+            mlines.Line2D([], [], color='red', lw=3, label='1.5-3 km (850-700mb)'),
             mlines.Line2D([], [], color='green', lw=3, label='3-6 km (700-500mb)'),
             mlines.Line2D([], [], color='gold', lw=3, label='6-9 km (<500mb)'),
             mlines.Line2D([], [], color='black', lw=0.5, alpha=0.5, label='Rings: 20 kts') 
@@ -253,9 +252,8 @@ if __name__ == "__main__":
     print(f"Starting HREF Hodograph + CAPE generation for {date_str} {run}Z")
     print(f"Configuration: Region={REGION}")
     
-    # FORCE UPDATE: This print statement ensures the script file itself is different 
-    # than the one currently in the repo, forcing Git to acknowledge a change.
-    print("Applying Thick Lines and White CAPE update...")
+    # Force update print to trigger git change
+    print("Applying Color Logic Fix (Pink >= 850mb)...")
     
     for fhr in range(1, 49):
         process_forecast_hour(run_dt, date_str, run, fhr)
