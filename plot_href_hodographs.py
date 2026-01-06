@@ -19,25 +19,25 @@ warnings.filterwarnings("ignore")
 
 # --- Configuration ---
 # REGION: [West, East, South, North]
-# Focused on Mid-Atlantic/Carolinas (KY/TN/GA border to Offshore)
+# Focused on Mid-Atlantic/Carolinas
 REGION = [-86.0, -72.0, 32.0, 39.0]   
 
 OUTPUT_DIR = "images"
 
 # --- TUNING SETTINGS ---
-# Grid Spacing: 20 = approx every 60km (37 miles). 
-# This is dense enough to likely catch KINT and KRDU separately.
-GRID_SPACING = 20             
+# Grid Spacing: 23 (approx 69km). 
+# Slightly increased spacing allows us to make the boxes bigger.
+GRID_SPACING = 23             
 
-# Box Size: 55km (55000m). 
-# Needs to be slightly smaller than the spacing (60km) to avoid overlap.
-BOX_SIZE = 55000              
+# Box Size: 65000m (65km). 
+# Increased from 55km. This fills the gap created by the spacing
+# to maximize chart size without overlap.
+BOX_SIZE = 65000              
 
 # Levels for Hodographs
 REQUESTED_LEVELS = [1000, 925, 850, 700, 500, 250] * units.hPa
 
 # CAPE Color Levels
-# We will mask anything below the first level so it appears white/transparent
 CAPE_LEVELS = np.arange(250, 5001, 250) 
 
 def get_latest_run_time():
@@ -129,7 +129,7 @@ def process_forecast_hour(date_obj, date_str, run, fhr):
         if ds_cape is not None:
             cape_data = ds_cape['cape']
             
-            # MASKING: Values < 250 become NaN (transparent)
+            # Mask values < 250 as transparent
             cape_masked = np.where(cape_data.values < 250, np.nan, cape_data.values)
             
             cape_plot = ax.contourf(cape_data.longitude, cape_data.latitude, cape_masked, 
