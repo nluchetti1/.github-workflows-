@@ -2,9 +2,7 @@ name: Update HREF Hodograph Map
 
 on:
   schedule:
-    # Runs at 03:20 UTC (for 00Z run) and 15:20 UTC (for 12Z run)
     - cron: '20 3,15 * * *'
-  # Allows you to run it manually from the Actions tab for testing
   workflow_dispatch:
 
 permissions:
@@ -18,8 +16,6 @@ jobs:
     - name: Checkout Code
       uses: actions/checkout@v4
       with:
-        # This uses the Personal Access Token you saved as a Secret
-        # It allows the push to trigger the Pages build
         token: ${{ secrets.ACTION_TOKEN }}
 
     - name: Set up Python
@@ -41,11 +37,14 @@ jobs:
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
         
-        # Add the images directory
+        # 1. Remove the junk index files so they don't cause confusion
+        rm -f *.idx
+        
+        # 2. Add the images
         git add images/*.png
         
-        # Commit if there are changes (avoids error if no new plots)
-        git commit -m "Auto-update HREF plots for $(date -u)" || exit 0
+        # 3. Commit (only if there are actual changes)
+        git commit -m "Auto-update HREF plots for $(date -u)" || echo "No changes to commit"
         
-        # Push back to the repository
+        # 4. Push
         git push
