@@ -26,9 +26,9 @@ OUTPUT_DIR = "images"
 GRID_SPACING = 30             
 BOX_SIZE = 85000              
 
-# Levels for Hodographs (Must be in descending pressure order for the logic below)
-# 1000->925 (Pink), 925->700 (Red), 700->500 (Green), 500->250 (Yellow)
-REQUESTED_LEVELS = [1000, 925, 850, 700, 500, 250] * units.hPa
+# Preferred Levels (We will use as many of these as we can find)
+# Order: Surface -> Aloft
+REQUESTED_LEVELS = [1000, 925, 850, 700, 500, 250]
 
 # CAPE Color Levels
 CAPE_LEVELS = np.arange(250, 5001, 250) 
@@ -69,29 +69,34 @@ def download_href_mean(date_str, run, fhr):
         print(f"Download failed: {e}")
         return None
 
-def plot_colored_hodograph(ax, u, v):
+def get_segment_color(pressure_start, pressure_end):
     """
-    Manually plots a multi-colored hodograph line segment by segment.
-    
-    Mapping Strategy (Standard Atmosphere Approx):
-    - Segment 0 (1000->925mb): ~0-750m   -> PINK (Magenta)
-    - Segment 1 (925->850mb):  ~750-1500m -> RED
-    - Segment 2 (850->700mb):  ~1.5-3.0km -> RED
-    - Segment 3 (700->500mb):  ~3.0-5.5km -> GREEN
-    - Segment 4 (500->250mb):  ~5.5-10km  -> YELLOW
+    Determines color based on the pressure level of the segment.
+    Uses Standard Atmosphere approximation for heights.
     """
-    # Colors corresponding to the segments between the 6 levels
-    # Levels: [1000, 925, 850, 700, 500, 250]
-    # Segments:   0    1    2    3    4
-    segment_colors = ['magenta', 'red', 'red', 'green', 'gold']
+    # Average pressure of the segment to decide its "height"
+    avg_p = (pressure_start + pressure_end) / 2.0
     
-    # We loop through len(u)-1 segments
+    if avg_p >= 900:      # 0-1 km approx
+        return 'magenta'
+    elif 700 <= avg_p < 900: # 1-3 km approx
+        return 'red'
+    elif 500 <= avg_p < 700: # 3-6 km approx
+        return 'green'
+    else:                 # > 6 km (Pressure < 500)
+        return 'gold'
+
+def plot_colored_hodograph(ax, u, v, levels):
+    """
+    Plots a multi-colored hodograph based on actual pressure levels found.
+    """
+    # We loop through segments
     for k in range(len(u) - 1):
-        if k < len(segment_colors):
-            color = segment_colors[k]
-        else:
-            color = 'gold' # Fallback
-            
+        # Get pressure levels for this segment (e.g., 850 and 700)
+        p_start = levels[k]
+        p_end = levels[k+1]
+        
+        color = get_segment_color(p_start, p_end)
         ax.plot([u[k], u[k+1]], [v[k], v[k+1]], color=color, linewidth=1.5)
 
 def process_forecast_hour(date_obj, date_str, run, fhr):
@@ -103,6 +108,7 @@ def process_forecast_hour(date_obj, date_str, run, fhr):
         print(f"[f{fhr:02d}] Loading GRIB data...")
         
         # --- 1. Load Wind Data ---
+        # Note: We do NOT filter by level here yet, we load all isobaric levels
         ds_u = xr.open_dataset(grib_file, engine='cfgrib', 
                                filter_by_keys={'typeOfLevel': 'isobaricInhPa', 'shortName': 'u'})
         ds_v = xr.open_dataset(grib_file, engine='cfgrib', 
@@ -121,27 +127,26 @@ def process_forecast_hour(date_obj, date_str, run, fhr):
                 print("CAPE not found. Plotting winds only.")
                 ds_cape = None
 
-        # --- 3. Filter Vertical Levels ---
+        # --- 3. ROBUST Level Filtering ---
         file_levels = ds_wind.isobaricInhPa.values
-        # Ensure we get them in the order we defined (1000 -> 250) for the color logic to work
-        # We find indices of our requested levels in the file
-        u_list = []
-        v_list = []
         
-        # Manually select levels in order to ensure the arrays are sorted 1000->250
-        found_levels = True
-        for lev in REQUESTED_LEVELS.m:
-            if lev not in file_levels:
-                found_levels = False
-                break
+        # Find which of our requested levels actually exist in this file
+        # We sort them descending (1000 -> 200) for proper plotting
+        available_levels = sorted([l for l in REQUESTED_LEVELS if l in file_levels], reverse=True)
         
-        if not found_levels:
-            print(f"Skipping f{fhr:02d}: Missing required vertical levels.")
+        if len(available_levels) < 3:
+            print(f"Skipping f{fhr:02d}: Found {len(available_levels)} levels {available_levels}. Need at least 3.")
             return
+        
+        print(f"       Using levels: {available_levels}")
 
-        ds_wind = ds_wind.sel(isobaricInhPa=REQUESTED_LEVELS.m)
+        # Select only the available levels
+        ds_wind = ds_wind.sel(isobaricInhPa=available_levels)
         u = ds_wind['u'].metpy.convert_units('kts')
         v = ds_wind['v'].metpy.convert_units('kts')
+        
+        # Store level values for the color function
+        level_values = available_levels
 
         # --- 4. Plotting Setup ---
         print(f"[f{fhr:02d}] Initializing Map...")
@@ -165,16 +170,14 @@ def process_forecast_hour(date_obj, date_str, run, fhr):
             plt.colorbar(cape_plot, ax=ax, orientation='horizontal', pad=0.02, 
                          aspect=50, shrink=0.8, label='SBCAPE (J/kg)')
 
-        # --- 6. ADD LEGEND FOR HODOGRAPHS ---
-        # Create custom legend handles
+        # --- 6. ADD LEGEND ---
         legend_elements = [
-            mlines.Line2D([], [], color='magenta', lw=2, label='0-1 km'),
-            mlines.Line2D([], [], color='red', lw=2, label='1-3 km'),
-            mlines.Line2D([], [], color='green', lw=2, label='3-6 km'),
-            mlines.Line2D([], [], color='gold', lw=2, label='6-9 km')
+            mlines.Line2D([], [], color='magenta', lw=2, label='0-1 km (>900mb)'),
+            mlines.Line2D([], [], color='red', lw=2, label='1-3 km (900-700mb)'),
+            mlines.Line2D([], [], color='green', lw=2, label='3-6 km (700-500mb)'),
+            mlines.Line2D([], [], color='gold', lw=2, label='6-9 km (<500mb)')
         ]
-        # Place legend in upper left (zorder must be high to sit on top of map)
-        ax.legend(handles=legend_elements, loc='upper left', title="Hodograph Height (AGL)", 
+        ax.legend(handles=legend_elements, loc='upper left', title="Hodograph Layers", 
                   framealpha=0.9, fontsize=10, title_fontsize=11).set_zorder(100)
 
         # --- 7. Plot Hodographs (Foreground) ---
@@ -206,16 +209,14 @@ def process_forecast_hour(date_obj, date_str, run, fhr):
                 bounds = [proj_pnt[0] - BOX_SIZE/2, proj_pnt[1] - BOX_SIZE/2, BOX_SIZE, BOX_SIZE]
                 sub_ax = ax.inset_axes(bounds, transform=ax.transData, zorder=20)
                 
-                # Setup Hodograph
                 h = Hodograph(sub_ax, component_range=80)
                 h.add_grid(increment=20, color='black', alpha=0.2, linewidth=0.5)
                 
-                # Extract profile for this point
                 u_profile = u_data[:, i, j]
                 v_profile = v_data[:, i, j]
                 
-                # Custom Colored Plotting
-                plot_colored_hodograph(h.ax, u_profile, v_profile)
+                # Pass the actual levels to the plotter for dynamic coloring
+                plot_colored_hodograph(h.ax, u_profile, v_profile, level_values)
                 
                 sub_ax.set_xticklabels([])
                 sub_ax.set_yticklabels([])
