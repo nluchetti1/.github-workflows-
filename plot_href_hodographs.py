@@ -11,131 +11,146 @@ import os
 import sys
 
 # --- Configuration ---
-REGION = [-98, -74, 24, 38]  # SE US [West, East, South, North]
-GRID_SPACING = 8             # Plot a hodograph every Nth grid point
-LEVELS = [1000, 925, 850, 700, 500, 300] * units.hPa  # Pressure levels
+REGION = [-98, -74, 24, 38]   # Southeast US
+GRID_SPACING = 10             # Plot density
+FORECAST_HOUR = '01'          # Changed from '00' to '01' (Mean usually starts at f01)
 OUTPUT_DIR = "images"
 
+# Levels to look for. 
+REQUESTED_LEVELS = [1000, 925, 850, 700, 500, 250] * units.hPa
+
 def get_latest_run_time():
-    """Determines the latest available 00Z or 12Z run."""
+    """Determines the latest available run."""
     now = datetime.datetime.utcnow()
-    # Check if 12Z is likely available (after ~14:30Z)
+    # Logic: 12Z is usually ready by 15:00Z; 00Z by 03:00Z
     if now.hour >= 15:
         run = '12'
         date = now
-    # Check if 00Z is likely available (after ~02:30Z)
     elif now.hour >= 3:
         run = '00'
         date = now
     else:
-        # Fallback to previous day's 12Z if too early for 00Z
         run = '12'
         date = now - datetime.timedelta(days=1)
     
     return date.strftime('%Y%m%d'), run
 
-def download_href_file(date_str, run, fhr='00'):
-    """Downloads the HREF Ensemble Mean GRIB2 file from NOMADS."""
-    # URL structure for HREF v3 Ensemble Mean
+def download_href_mean(date_str, run, fhr):
+    """Downloads the HREF Ensemble Mean file from the ensprod directory."""
+    
+    # URL Structure
+    # .../href.20260106/ensprod/href.t00z.conus.mean.f01.grib2
     base_url = f"https://nomads.ncep.noaa.gov/pub/data/nccf/com/href/prod/href.{date_str}/ensprod"
     filename = f"href.t{run}z.conus.mean.f{fhr}.grib2"
     url = f"{base_url}/{filename}"
     
-    print(f"Downloading {url}...")
-    response = requests.get(url, stream=True)
-    if response.status_code == 200:
-        with open(filename, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=1024):
-                f.write(chunk)
+    print(f"Downloading: {url}")
+    
+    # NOMADS requires a User-Agent or it may block the request (403 or 404)
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
+    
+    try:
+        with requests.get(url, stream=True, timeout=60, headers=headers) as r:
+            if r.status_code == 404:
+                print(f"Error 404: File not found. The mean product might not exist for f{fhr}.")
+                print("Try checking f01, f02, etc. instead of f00.")
+                sys.exit(1)
+            r.raise_for_status()
+            with open(filename, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    f.write(chunk)
+        print(f"Success: {filename}")
         return filename
-    else:
-        print(f"Failed to download. Status: {response.status_code}")
+    except Exception as e:
+        print(f"Download failed: {e}")
         sys.exit(1)
 
-def plot_hodographs(filename, date_str, run):
-    """Reads data and plots hodographs."""
-    # Load dataset (filter for isobaric levels)
-    # backend_kwargs helps filter specific GRIB messages if needed
-    ds = xr.open_dataset(filename, engine='cfgrib', 
-                         filter_by_keys={'typeOfLevel': 'isobaricInhPa'})
+def plot_hodographs(filename, date_str, run, fhr):
+    print("Reading GRIB data...")
     
-    # Subset for region and levels
+    try:
+        ds = xr.open_dataset(filename, engine='cfgrib', 
+                             filter_by_keys={'typeOfLevel': 'isobaricInhPa'})
+    except Exception as e:
+        print(f"Failed to read GRIB: {e}")
+        sys.exit(1)
+
     ds = ds.sel(latitude=slice(REGION[3], REGION[2]), 
                 longitude=slice(360+REGION[0], 360+REGION[1]))
-    ds = ds.sel(isobaricInhPa=LEVELS.m)
 
-    # Extract U and V components
+    file_levels = ds.isobaricInhPa.values
+    levels_to_use = [l for l in REQUESTED_LEVELS.m if l in file_levels]
+    
+    if len(levels_to_use) < 3:
+        print("Error: Not enough vertical levels in this file for a hodograph.")
+        sys.exit(1)
+        
+    ds = ds.sel(isobaricInhPa=levels_to_use)
+
     u = ds['u'].metpy.convert_units('kts')
     v = ds['v'].metpy.convert_units('kts')
-    
-    # Create Figure
+
     fig = plt.figure(figsize=(18, 12))
     ax = fig.add_subplot(1, 1, 1, projection=ccrs.LambertConformal())
     ax.set_extent(REGION)
-    ax.add_feature(cfeature.COASTLINE.with_scale('50m'), linewidth=2)
-    ax.add_feature(cfeature.BORDERS, linewidth=2)
-    ax.add_feature(cfeature.STATES.with_scale('50m'), linewidth=1, edgecolor='gray')
+    
+    ax.add_feature(cfeature.COASTLINE, linewidth=1.5)
+    ax.add_feature(cfeature.BORDERS, linewidth=1.5)
+    ax.add_feature(cfeature.STATES, linewidth=0.5, edgecolor='gray')
+    ax.add_feature(cfeature.LAND, facecolor='#F5F5F5')
 
-    # Decimate grid for plotting (skip points)
-    skip = GRID_SPACING
-    lons = u.longitude.values[::skip, ::skip]
-    lats = u.latitude.values[::skip, ::skip]
-    u_data = u.values[:, ::skip, ::skip]
-    v_data = v.values[:, ::skip, ::skip]
+    lons = u.longitude.values
+    lats = u.latitude.values
+    u_data = u.values
+    v_data = v.values
 
-    # Plot Hodographs
-    # Iterate over the spatial grid
-    for i in range(lons.shape[0]):
-        for j in range(lons.shape[1]):
-            # Create inset axes for each hodograph
-            # Transform lat/lon to figure coordinates is complex, 
-            # simplified approach: map coordinates
-            
-            # Simple check to ensure we are plotting valid data
-            if np.isnan(u_data[0, i, j]): continue
+    print(f"Plotting using levels: {levels_to_use} hPa...")
 
-            # Create an inset ax at the map location
-            # Note: This loop can be slow. 
-            # For efficiency, we place axes manually or use a custom collection.
-            # Here we use the simplified `inset_axes` approach or just standard axes placement
-            # But calculating transform is tricky.
+    for i in range(0, lons.shape[0], GRID_SPACING):
+        for j in range(0, lons.shape[1], GRID_SPACING):
             
-            # ALTERNATIVE: Use the map coordinates to place the inset
-            proj_pnt = ax.projection.transform_point(lons[i, j], lats[i, j], ccrs.PlateCarree())
-            
-            # Check if point is inside plot extent
-            if not ax.get_xlim()[0] < proj_pnt[0] < ax.get_xlim()[1]: continue
-            if not ax.get_ylim()[0] < proj_pnt[1] < ax.get_ylim()[1]: continue
+            if np.isnan(u_data[:, i, j]).any(): continue
 
-            # Define inset size (coord units)
-            inset_size = 0.8  # degrees approx equivalent
-            bounds = [proj_pnt[0] - inset_size/2, proj_pnt[1] - inset_size/2, inset_size, inset_size]
+            curr_lon = lons[i, j]
+            curr_lat = lats[i, j]
             
-            # Create the inset axes
-            sub_ax = ax.inset_axes(bounds, transform=ax.projection)
-            
-            h = Hodograph(sub_ax, component_range=60)
-            h.add_grid(increment=20, color='gray', alpha=0.5, linewidth=0.5)
-            h.plot(u_data[:, i, j], v_data[:, i, j], linewidth=1.5, color='red')
-            
-            # Hide tick labels for cleanliness
-            sub_ax.set_xticklabels([])
-            sub_ax.set_yticklabels([])
-            sub_ax.axis('off') # Turn off box
+            check_lon = curr_lon - 360 if curr_lon > 180 else curr_lon
+            if not (REGION[0] < check_lon < REGION[1] and REGION[2] < curr_lat < REGION[3]):
+                continue
 
-    # Title and Save
-    plt.title(f"HREF Ensemble Mean Hodographs | Run: {date_str} {run}Z", fontsize=20, weight='bold')
+            proj_pnt = ax.projection.transform_point(curr_lon, curr_lat, ccrs.PlateCarree())
+            
+            # Draw Hodograph
+            try:
+                # Inset axes
+                box_size = 1.0
+                bounds = [proj_pnt[0] - box_size/2, proj_pnt[1] - box_size/2, box_size, box_size]
+                sub_ax = ax.inset_axes(bounds, transform=ax.projection)
+                
+                h = Hodograph(sub_ax, component_range=80)
+                h.add_grid(increment=20, color='gray', alpha=0.3, linewidth=0.5)
+                h.plot(u_data[:, i, j], v_data[:, i, j], linewidth=1.2, color='blue')
+                
+                sub_ax.set_xticklabels([])
+                sub_ax.set_yticklabels([])
+                sub_ax.axis('off')
+            except Exception:
+                continue
+
+    plt.title(f"HREF Mean Hodographs | {date_str} {run}Z | f{fhr}", fontsize=18, weight='bold')
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    output_path = f"{OUTPUT_DIR}/href_hodo_{date_str}_{run}z.png"
+    output_path = f"{OUTPUT_DIR}/href_mean_{date_str}_{run}z_f{fhr}.png"
     plt.savefig(output_path, bbox_inches='tight', dpi=100)
-    print(f"Saved {output_path}")
+    print(f"Saved: {output_path}")
 
 if __name__ == "__main__":
     date_str, run = get_latest_run_time()
-    grib_file = download_href_file(date_str, run)
+    grib_file = download_href_mean(date_str, run, FORECAST_HOUR)
+    
     try:
-        plot_hodographs(grib_file, date_str, run)
+        plot_hodographs(grib_file, date_str, run, FORECAST_HOUR)
     finally:
-        # Cleanup
         if os.path.exists(grib_file):
             os.remove(grib_file)
