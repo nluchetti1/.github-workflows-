@@ -11,18 +11,16 @@ import os
 import sys
 
 # --- Configuration ---
-REGION = [-98, -74, 24, 38]   # Southeast US
-GRID_SPACING = 10             # Plot density
-FORECAST_HOUR = '01'          # Changed from '00' to '01' (Mean usually starts at f01)
+REGION = [-98, -74, 24, 38]   # Southeast US [West, East, South, North]
+GRID_SPACING = 10             # Plot density (Higher = fewer hodographs)
+FORECAST_HOUR = '01'          # Mean usually starts at f01
 OUTPUT_DIR = "images"
 
 # Levels to look for. 
 REQUESTED_LEVELS = [1000, 925, 850, 700, 500, 250] * units.hPa
 
 def get_latest_run_time():
-    """Determines the latest available run."""
     now = datetime.datetime.utcnow()
-    # Logic: 12Z is usually ready by 15:00Z; 00Z by 03:00Z
     if now.hour >= 15:
         run = '12'
         date = now
@@ -32,30 +30,20 @@ def get_latest_run_time():
     else:
         run = '12'
         date = now - datetime.timedelta(days=1)
-    
     return date.strftime('%Y%m%d'), run
 
 def download_href_mean(date_str, run, fhr):
-    """Downloads the HREF Ensemble Mean file from the ensprod directory."""
-    
-    # URL Structure
-    # .../href.20260106/ensprod/href.t00z.conus.mean.f01.grib2
     base_url = f"https://nomads.ncep.noaa.gov/pub/data/nccf/com/href/prod/href.{date_str}/ensprod"
     filename = f"href.t{run}z.conus.mean.f{fhr}.grib2"
     url = f"{base_url}/{filename}"
     
     print(f"Downloading: {url}")
-    
-    # NOMADS requires a User-Agent or it may block the request (403 or 404)
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    }
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
     
     try:
         with requests.get(url, stream=True, timeout=60, headers=headers) as r:
             if r.status_code == 404:
-                print(f"Error 404: File not found. The mean product might not exist for f{fhr}.")
-                print("Try checking f01, f02, etc. instead of f00.")
+                print(f"Error 404: File not found: {url}")
                 sys.exit(1)
             r.raise_for_status()
             with open(filename, 'wb') as f:
@@ -68,30 +56,45 @@ def download_href_mean(date_str, run, fhr):
         sys.exit(1)
 
 def plot_hodographs(filename, date_str, run, fhr):
-    print("Reading GRIB data...")
+    print("Reading GRIB data (U and V components separately)...")
     
+    # FIX 1: Open U and V separately to avoid "DatasetBuildError" from mismatching variables (like w or dpt)
     try:
-        ds = xr.open_dataset(filename, engine='cfgrib', 
-                             filter_by_keys={'typeOfLevel': 'isobaricInhPa'})
+        # Load U Component
+        ds_u = xr.open_dataset(filename, engine='cfgrib', 
+                               filter_by_keys={'typeOfLevel': 'isobaricInhPa', 'shortName': 'u'})
+        
+        # Load V Component
+        ds_v = xr.open_dataset(filename, engine='cfgrib', 
+                               filter_by_keys={'typeOfLevel': 'isobaricInhPa', 'shortName': 'v'})
+        
+        # Merge them into one dataset
+        ds = xr.merge([ds_u, ds_v])
+        
     except Exception as e:
         print(f"Failed to read GRIB: {e}")
         sys.exit(1)
 
-    ds = ds.sel(latitude=slice(REGION[3], REGION[2]), 
-                longitude=slice(360+REGION[0], 360+REGION[1]))
+    # FIX 2: Do NOT use ds.sel(latitude=...) because lat/lon are 2D coordinates, not dimensions.
+    # We will rely on the loop below to filter points spatially.
 
+    # Check Available Levels
     file_levels = ds.isobaricInhPa.values
     levels_to_use = [l for l in REQUESTED_LEVELS.m if l in file_levels]
     
+    print(f"Levels found: {levels_to_use}")
     if len(levels_to_use) < 3:
-        print("Error: Not enough vertical levels in this file for a hodograph.")
+        print("Error: Not enough vertical levels for hodographs.")
         sys.exit(1)
         
+    # Filter vertical levels
     ds = ds.sel(isobaricInhPa=levels_to_use)
 
+    # Extract Data
     u = ds['u'].metpy.convert_units('kts')
     v = ds['v'].metpy.convert_units('kts')
 
+    # Setup Plot
     fig = plt.figure(figsize=(18, 12))
     ax = fig.add_subplot(1, 1, 1, projection=ccrs.LambertConformal())
     ax.set_extent(REGION)
@@ -101,31 +104,41 @@ def plot_hodographs(filename, date_str, run, fhr):
     ax.add_feature(cfeature.STATES, linewidth=0.5, edgecolor='gray')
     ax.add_feature(cfeature.LAND, facecolor='#F5F5F5')
 
+    # Get data values
     lons = u.longitude.values
     lats = u.latitude.values
     u_data = u.values
     v_data = v.values
 
-    print(f"Plotting using levels: {levels_to_use} hPa...")
+    print(f"Plotting hodographs...")
 
+    # Plot Loop
     for i in range(0, lons.shape[0], GRID_SPACING):
         for j in range(0, lons.shape[1], GRID_SPACING):
             
+            # 1. NaN check
             if np.isnan(u_data[:, i, j]).any(): continue
 
+            # 2. Coordinate Check
             curr_lon = lons[i, j]
             curr_lat = lats[i, j]
             
+            # Normalize lon to -180 to 180 for check
             check_lon = curr_lon - 360 if curr_lon > 180 else curr_lon
+            
+            # 3. Spatial Filter (This replaces the failed ds.sel step)
             if not (REGION[0] < check_lon < REGION[1] and REGION[2] < curr_lat < REGION[3]):
                 continue
 
-            proj_pnt = ax.projection.transform_point(curr_lon, curr_lat, ccrs.PlateCarree())
-            
-            # Draw Hodograph
+            # 4. Transform to Map Projection
             try:
-                # Inset axes
-                box_size = 1.0
+                proj_pnt = ax.projection.transform_point(curr_lon, curr_lat, ccrs.PlateCarree())
+            except:
+                continue
+
+            # 5. Draw Hodograph Inset
+            try:
+                box_size = 1.0 # Size in map units
                 bounds = [proj_pnt[0] - box_size/2, proj_pnt[1] - box_size/2, box_size, box_size]
                 sub_ax = ax.inset_axes(bounds, transform=ax.projection)
                 
@@ -139,6 +152,7 @@ def plot_hodographs(filename, date_str, run, fhr):
             except Exception:
                 continue
 
+    # Save
     plt.title(f"HREF Mean Hodographs | {date_str} {run}Z | f{fhr}", fontsize=18, weight='bold')
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     output_path = f"{OUTPUT_DIR}/href_mean_{date_str}_{run}z_f{fhr}.png"
