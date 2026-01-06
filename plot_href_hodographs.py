@@ -12,11 +12,11 @@ import os
 import sys
 import warnings
 
-# Suppress warnings for cleaner logs
+# Suppress warnings
 warnings.filterwarnings("ignore")
 
 # --- Configuration ---
-REGION = [-98, -74, 24, 38]   # Southeast US [West, East, South, North]
+REGION = [-98, -74, 24, 38]   # Southeast US
 GRID_SPACING = 10             # Hodograph density
 OUTPUT_DIR = "images"
 
@@ -42,7 +42,7 @@ def get_latest_run_time():
 def download_href_mean(date_str, run, fhr):
     """Downloads the HREF Mean file for a specific forecast hour."""
     base_url = f"https://nomads.ncep.noaa.gov/pub/data/nccf/com/href/prod/href.{date_str}/ensprod"
-    filename = f"href.t{run}z.conus.mean.f{fhr:02d}.grib2" # Ensure 01, 02 format
+    filename = f"href.t{run}z.conus.mean.f{fhr:02d}.grib2"
     url = f"{base_url}/{filename}"
     
     print(f"\n[f{fhr:02d}] Downloading: {url}")
@@ -69,7 +69,7 @@ def process_forecast_hour(date_str, run, fhr):
 
     try:
         # --- 1. Load Wind Data (Isobaric) ---
-        # We read U and V separately to prevent merge conflicts
+        # Load U and V separately to avoid conflicts
         ds_u = xr.open_dataset(grib_file, engine='cfgrib', 
                                filter_by_keys={'typeOfLevel': 'isobaricInhPa', 'shortName': 'u'})
         ds_v = xr.open_dataset(grib_file, engine='cfgrib', 
@@ -77,13 +77,18 @@ def process_forecast_hour(date_str, run, fhr):
         ds_wind = xr.merge([ds_u, ds_v])
         
         # --- 2. Load CAPE Data (Surface) ---
-        # We try to find Surface CAPE. 'paramId': 59 or shortName: 'cape'
+        # Improved filter: Explicitly ask for Surface CAPE to avoid ambiguity
         try:
             ds_cape = xr.open_dataset(grib_file, engine='cfgrib', 
-                                      filter_by_keys={'shortName': 'cape'})
+                                      filter_by_keys={'shortName': 'cape', 'typeOfLevel': 'surface'})
         except Exception:
-            print("CAPE not found in this file. Plotting winds only.")
-            ds_cape = None
+            try:
+                # Fallback: Try just shortName if 'surface' fails
+                ds_cape = xr.open_dataset(grib_file, engine='cfgrib', 
+                                          filter_by_keys={'shortName': 'cape'})
+            except Exception:
+                print("CAPE not found in this file. Plotting winds only.")
+                ds_cape = None
 
         # --- 3. Filter Vertical Levels (Winds) ---
         file_levels = ds_wind.isobaricInhPa.values
@@ -107,12 +112,7 @@ def process_forecast_hour(date_str, run, fhr):
 
         # --- 5. Plot CAPE (Background) ---
         if ds_cape is not None:
-            # Extract CAPE
             cape = ds_cape['cape']
-            # Plot Contours
-            # We use transform=ccrs.PlateCarree() because GRIB lat/lon are usually standard
-            # But since we are using xarray coords which match the grid, we can just pass them.
-            # However, explicit transform is safer.
             cape_plot = ax.contourf(cape.longitude, cape.latitude, cape.values, 
                                     levels=CAPE_LEVELS, cmap='nipy_spectral', 
                                     extend='max', alpha=0.6, transform=ccrs.PlateCarree())
@@ -126,36 +126,38 @@ def process_forecast_hour(date_str, run, fhr):
         u_data = u.values
         v_data = v.values
 
-        # Loop through grid
+        # Set Hodograph Size (in Meters for Lambert Conformal)
+        # 0.9 was too small (meters). 75km (75000m) is roughly 0.7 degrees.
+        box_size = 75000 
+
         for i in range(0, lons.shape[0], GRID_SPACING):
             for j in range(0, lons.shape[1], GRID_SPACING):
                 
-                # Check Bounds & NaNs
                 if np.isnan(u_data[:, i, j]).any(): continue
                 
                 curr_lon = lons[i, j]
                 curr_lat = lats[i, j]
                 
-                # Fix for 0-360 longitude format
+                # Check Bounds (Longitude correction)
                 check_lon = curr_lon - 360 if curr_lon > 180 else curr_lon
                 
                 if not (REGION[0] < check_lon < REGION[1] and REGION[2] < curr_lat < REGION[3]):
                     continue
 
-                # Transform to map coords
+                # Transform Lat/Lon to Project Coordinates (Meters)
                 try:
                     proj_pnt = ax.projection.transform_point(curr_lon, curr_lat, ccrs.PlateCarree())
                 except: continue
 
-                # Inset Axis
-                box_size = 0.9
+                # Define Bounds in PROJECTED coordinates (Meters)
                 bounds = [proj_pnt[0] - box_size/2, proj_pnt[1] - box_size/2, box_size, box_size]
-                sub_ax = ax.inset_axes(bounds, transform=ax.projection, zorder=20)
+                
+                # FIX 1: Use ax.transData instead of ax.projection
+                # transData handles the data coordinates (which are in meters here)
+                sub_ax = ax.inset_axes(bounds, transform=ax.transData, zorder=20)
                 
                 h = Hodograph(sub_ax, component_range=80)
                 h.add_grid(increment=20, color='black', alpha=0.2, linewidth=0.5)
-                
-                # Plot hodograph line (Dark Blue)
                 h.plot(u_data[:, i, j], v_data[:, i, j], linewidth=1.0, color='navy')
                 
                 sub_ax.set_xticklabels([])
@@ -171,12 +173,14 @@ def process_forecast_hour(date_str, run, fhr):
         plt.savefig(out_path, bbox_inches='tight', dpi=100)
         print(f"Saved: {out_path}")
         
-        plt.close(fig) # Crucial to free memory
+        plt.close(fig)
 
     except Exception as e:
+        # Print full traceback if needed, but simple error for now
         print(f"Error processing f{fhr:02d}: {e}")
+        import traceback
+        traceback.print_exc() # Useful to see exact line of failure
     finally:
-        # Delete file to save disk space on runner
         if os.path.exists(grib_file):
             os.remove(grib_file)
 
@@ -184,6 +188,5 @@ if __name__ == "__main__":
     date_str, run = get_latest_run_time()
     print(f"Starting HREF Hodograph + CAPE generation for {date_str} {run}Z")
     
-    # Loop from f01 to f48
     for fhr in range(1, 49):
         process_forecast_hour(date_str, run, fhr)
