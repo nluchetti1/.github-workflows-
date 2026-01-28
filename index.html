@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="refresh" content="900">
+    <title>HREF LPMM Dashboard - NC Domain</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0f0f0f; color: #e0e0e0; text-align: center; margin: 0; padding: 20px; }
+        .header { background: #1a1a1a; padding: 20px; border-radius: 10px; margin-bottom: 30px; border: 1px solid #333; }
+        h1 { margin: 0 0 10px 0; color: #fff; }
+        .status-container { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 5px; }
+        .dot { height: 12px; width: 12px; background-color: #00ff00; border-radius: 50%; display: inline-block; box-shadow: 0 0 8px #00ff00; }
+        .status-text { color: #00ff00; font-weight: bold; font-size: 1.1em; }
+        .timestamp { color: #888; font-size: 0.9em; }
+        .noaa-links { margin-top: 15px; display: flex; justify-content: center; gap: 20px; }
+        .noaa-link { color: #4da6ff; text-decoration: none; font-size: 0.85em; font-weight: bold; }
+        
+        .container { display: flex; flex-direction: column; align-items: center; gap: 25px; padding-bottom: 40px; }
+        
+        .plot-box { 
+            background: #1a1a1a; 
+            padding: 15px; 
+            border-radius: 12px; 
+            border: 1px solid #333; 
+            width: 95%;
+            max-width: 800px; 
+        }
+        
+        .plot-box h2 { font-size: 1.2em; margin-bottom: 10px; color: #bbb; border-bottom: 1px solid #333; padding-bottom: 10px; }
+        
+        .zoomable { cursor: zoom-in; width: 100%; height: auto; border-radius: 6px; transition: opacity 0.3s; }
+        .zoomable:hover { opacity: 0.8; }
+
+        /* DOWNLOAD BUTTON STYLES */
+        .download-btn {
+            display: inline-block;
+            margin-top: 15px;
+            padding: 10px 20px;
+            background-color: #333;
+            color: #4da6ff;
+            text-decoration: none;
+            border-radius: 5px;
+            font-size: 0.9em;
+            font-weight: bold;
+            border: 1px solid #4da6ff;
+            transition: all 0.2s;
+        }
+        .download-btn:hover {
+            background-color: #4da6ff;
+            color: #000;
+        }
+
+        #overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9);
+            z-index: 1000;
+            cursor: zoom-out;
+            justify-content: center;
+            align-items: center;
+        }
+        #overlay img { max-width: 95%; max-height: 95%; border: 2px solid #444; }
+
+        footer { margin-top: 20px; color: #555; font-size: 0.8em; border-top: 1px solid #222; padding-top: 20px; }
+    </style>
+</head>
+<body>
+    <div id="overlay" onclick="this.style.display='none'">
+        <img id="overlay-img" src="">
+    </div>
+
+    <div class="header">
+        <h1>HREF LPMM Forecast Dashboard</h1>
+        <div class="status-container">
+            <span class="dot"></span>
+            <span class="status-text">System: OPERATIONAL</span>
+        </div>
+        <div class="timestamp">Last Attempt: 2026-01-28 17:11 UTC</div>
+        <div class="noaa-links">
+            <a href="https://www.nco.ncep.noaa.gov/pmb/nwprod/prodstat/" target="_blank" class="noaa-link" rel="noreferrer">🔗 Model Production Status</a>
+            <a href="https://nomads.ncep.noaa.gov/status.php" target="_blank" class="noaa-link" rel="noreferrer">🔗 NOMADS Server Status</a>
+        </div>
+    </div>
+    
+    <div class="container">
+        <div class="plot-box">
+            <h2>24-Hour Comparison (dprog/dt)</h2>
+            <img class="zoomable" src="latest_compare.png" onclick="zoomImage(this.src)" alt="Precipitation Comparison">
+            <a href="latest_compare.png" download="HREF_Comparison.png" class="download-btn">💾 Download High-Res Map</a>
+        </div>
+        <div class="plot-box">
+            <h2>HREF Probability Thresholds</h2>
+            <img class="zoomable" src="latest_threshold.png" onclick="zoomImage(this.src)" alt="Threshold Paintball">
+            <a href="latest_threshold.png" download="HREF_Thresholds.png" class="download-btn">💾 Download High-Res Map</a>
+        </div>
+    </div>
+
+    <footer>
+        NC Domain Map Generation | Click to Zoom | 💾 to Save<br>
+        Page Refreshes Every 15 Minutes
+    </footer>
+
+    <script>
+        function zoomImage(src) {
+            document.getElementById('overlay-img').src = src;
+            document.getElementById('overlay').style.display = 'flex';
+        }
+    </script>
+</body>
+</html>
