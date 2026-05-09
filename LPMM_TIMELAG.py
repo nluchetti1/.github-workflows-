@@ -66,36 +66,47 @@ now_utc = datetime.now(pytz.UTC)
 current_hour = now_utc.hour
 
 base_url_href = "https://nomads.ncep.noaa.gov/pub/data/nccf/com/href/prod"
-# Direct AWS S3 bucket path for REFS
 base_url_refs = "https://noaa-rrfs-pds.s3.amazonaws.com/rrfs_a" 
 
 date_now = now_utc.strftime('%Y%m%d')
 date_prev = (now_utc - timedelta(days=1)).strftime('%Y%m%d')
 
-# Logic for 00Z vs 12Z dprog/dt comparison (HREF - 12hr cadence, 24hr accumulation)
+# --- HREF Logic (12hr cadence) ---
 if 13 <= current_hour <= 23:
-    target_start = now_utc.replace(hour=12, minute=0, second=0, microsecond=0)
+    href_target = now_utc.replace(hour=12, minute=0, second=0, microsecond=0)
     href_runs = [{"date": date_now, "hour": "12", "f_range": range(1, 25)},
                  {"date": date_now, "hour": "00", "f_range": range(13, 37)},
                  {"date": date_prev, "hour": "12", "f_range": range(25, 49)}]
 else:
-    target_start = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+    href_target = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
     href_runs = [{"date": date_now, "hour": "00", "f_range": range(1, 25)},
                  {"date": date_prev, "hour": "12", "f_range": range(13, 37)},
                  {"date": date_prev, "hour": "00", "f_range": range(25, 49)}]
 
-href_valid_range = f"Valid: {target_start.strftime('%H')}Z {target_start.strftime('%Y%m%d')} to {(target_start+timedelta(hours=24)).strftime('%H')}Z {(target_start+timedelta(hours=24)).strftime('%Y%m%d')}"
-refs_valid_range = f"Valid: {target_start.strftime('%H')}Z {target_start.strftime('%Y%m%d')} to {(target_start+timedelta(hours=48)).strftime('%H')}Z {(target_start+timedelta(hours=48)).strftime('%Y%m%d')}"
+href_valid_range = f"Valid: {href_target.strftime('%H')}Z {href_target.strftime('%Y%m%d')} to {(href_target+timedelta(hours=24)).strftime('%H')}Z {(href_target+timedelta(hours=24)).strftime('%Y%m%d')}"
 
-# Logic for REFS dprog/dt comparison (6hr cadence, 48hr accumulation)
+# --- REFS Logic (6hr cadence) ---
+if 3 <= current_hour < 9:
+    refs_target = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+elif 9 <= current_hour < 15:
+    refs_target = now_utc.replace(hour=6, minute=0, second=0, microsecond=0)
+elif 15 <= current_hour < 21:
+    refs_target = now_utc.replace(hour=12, minute=0, second=0, microsecond=0)
+else:
+    refs_target = now_utc.replace(hour=18, minute=0, second=0, microsecond=0)
+    if current_hour < 3: # Handle midnight crossover
+        refs_target -= timedelta(days=1)
+
+refs_valid_range = f"Valid: {refs_target.strftime('%H')}Z {refs_target.strftime('%Y%m%d')} to {(refs_target+timedelta(hours=48)).strftime('%H')}Z {(refs_target+timedelta(hours=48)).strftime('%Y%m%d')}"
+
 refs_runs = []
 for i in range(3):
-    run_time = target_start - timedelta(hours=6*i)
-    hour_diff = int((target_start - run_time).total_seconds() / 3600)
+    run_time = refs_target - timedelta(hours=6*i)
+    hour_diff = int((refs_target - run_time).total_seconds() / 3600)
     refs_runs.append({
         "date": run_time.strftime('%Y%m%d'),
         "hour": f"{run_time.hour:02d}",
-        "f_range": range(hour_diff + 1, hour_diff + 49), # 48-hour accumulation maxing out at f60
+        "f_range": range(hour_diff + 1, hour_diff + 49), # 48-hour accumulation
         "time": run_time
     })
 
