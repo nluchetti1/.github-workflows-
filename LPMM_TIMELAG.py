@@ -66,8 +66,8 @@ now_utc = datetime.now(pytz.UTC)
 current_hour = now_utc.hour
 
 base_url_href = "https://nomads.ncep.noaa.gov/pub/data/nccf/com/href/prod"
-# Using standard NCEP directory naming convention 'rrfs' for RREFS
-base_url_rrefs = "https://nomads.ncep.noaa.gov/pub/data/nccf/com/rrfs/prod" 
+# Direct AWS S3 bucket path for REFS
+base_url_refs = "https://noaa-rrfs-pds.s3.amazonaws.com/rrfs_a" 
 
 date_now = now_utc.strftime('%Y%m%d')
 date_prev = (now_utc - timedelta(days=1)).strftime('%Y%m%d')
@@ -86,14 +86,12 @@ else:
                  {"date": date_prev, "hour": "00", "f_range": range(25, 49)}]
     valid_range = f"Valid: 00Z {date_now} to 00Z {(now_utc+timedelta(days=1)).strftime('%Y%m%d')}"
 
-# Logic for RREFS dprog/dt comparison (6hr cadence)
-# To keep validity windows exactly identical for side-by-side comparison,
-# we step backwards in 6hr increments from the target validity start time.
-rrefs_runs = []
+# Logic for REFS dprog/dt comparison (6hr cadence)
+refs_runs = []
 for i in range(3):
     run_time = target_start - timedelta(hours=6*i)
     hour_diff = int((target_start - run_time).total_seconds() / 3600)
-    rrefs_runs.append({
+    refs_runs.append({
         "date": run_time.strftime('%Y%m%d'),
         "hour": f"{run_time.hour:02d}",
         "f_range": range(hour_diff + 1, hour_diff + 25),
@@ -102,11 +100,11 @@ for i in range(3):
 
 # --- 4. DATA COLLECTION ---
 href_results = []
-rrefs_results = []
+refs_results = []
 mm_to_inch = 0.0393701
 
 href_lats, href_lons = None, None
-rrefs_lats, rrefs_lons = None, None
+refs_lats, refs_lons = None, None
 
 # 4A. Fetching HREF Data
 for idx, run in enumerate(href_runs):
@@ -126,22 +124,23 @@ for idx, run in enumerate(href_runs):
         href_results.append({"data": np.sum(hourly_data, axis=0), 
                              "time": pd.to_datetime(run['date'] + ' ' + run['hour'] + 'Z')})
 
-# 4B. Fetching RREFS Data
-for idx, run in enumerate(rrefs_runs):
+# 4B. Fetching REFS Data from AWS S3
+for idx, run in enumerate(refs_runs):
     hourly_data = []
-    print(f"Processing RREFS Run: {run['date']} {run['hour']}Z")
+    print(f"Processing REFS Run: {run['date']} {run['hour']}Z")
     for f_hour in run['f_range']:
         f_str = f"{f_hour:02d}"
-        url = f"{base_url_rrefs}/rrfs.{run['date']}/ensprod/rrfs.t{run['hour']}z.conus.lpmm.f{f_str}.grib2"
-        temp_path = os.path.join(output_folder, f"temp_rrefs_{idx}_{f_str}.grib2")
+        # Constructed based on the S3 bucket path you provided
+        url = f"{base_url_refs}/refs.{run['date']}/{run['hour']}/enspost/refs.t{run['hour']}z.lpmm.f{f_str}.conus.grib2"
+        temp_path = os.path.join(output_folder, f"temp_refs_{idx}_{f_str}.grib2")
         if download_file(url, temp_path):
             data, lats, lons = unpack_total_precipitation(temp_path)
             if data is not None:
                 hourly_data.append(data * mm_to_inch)
-                rrefs_lats, rrefs_lons = lats, lons
+                refs_lats, refs_lons = lats, lons
             if os.path.exists(temp_path): os.remove(temp_path)
     if hourly_data:
-        rrefs_results.append({"data": np.sum(hourly_data, axis=0), 
+        refs_results.append({"data": np.sum(hourly_data, axis=0), 
                               "time": pd.to_datetime(run['date'] + ' ' + run['hour'] + 'Z')})
 
 # --- 5. PLOTTING ---
@@ -165,7 +164,6 @@ if len(href_results) >= 1 and href_lons is not None:
         axes[i].add_feature(USCOUNTIES.with_scale('500k'), edgecolor='gray', linewidth=0.4)
         axes[i].set_extent([-84.8, -74, 31, 39]) # NC Domain
     
-    # Large Font Colorbar
     if cs:
         cbar_ax = fig.add_axes([0.15, 0.12, 0.7, 0.03])
         cbar = fig.colorbar(cs, cax=cbar_ax, orientation='horizontal', ticks=clevs)
@@ -175,28 +173,28 @@ if len(href_results) >= 1 and href_lons is not None:
     fig.suptitle(f'24hr HREF LPMM [in] dprog/dt\n{valid_range}', fontsize=16, fontweight='bold', y=0.96)
     plt.savefig(os.path.join(output_folder, 'latest_compare.png'), dpi=300)
 
-# B: RREFS Comparison Plot
-if len(rrefs_results) >= 1 and rrefs_lons is not None:
-    fig_rrefs, axes_rrefs = plt.subplots(1, 3, figsize=(18, 7.5), subplot_kw={'projection': ccrs.PlateCarree()})
-    fig_rrefs.subplots_adjust(left=0.05, right=0.95, bottom=0.22, top=0.85, wspace=0.05)
-    cs_rrefs = None
+# B: REFS Comparison Plot
+if len(refs_results) >= 1 and refs_lons is not None:
+    fig_refs, axes_refs = plt.subplots(1, 3, figsize=(18, 7.5), subplot_kw={'projection': ccrs.PlateCarree()})
+    fig_refs.subplots_adjust(left=0.05, right=0.95, bottom=0.22, top=0.85, wspace=0.05)
+    cs_refs = None
     for i in range(3):
-        if i < len(rrefs_results):
-            res = rrefs_results[i]
-            cs_rrefs = axes_rrefs[i].contourf(rrefs_lons, rrefs_lats, res['data'], clevs, cmap=cmap, norm=norm, alpha=0.5)
-            axes_rrefs[i].set_title(f'{res["time"].strftime("%Y-%m-%d %H:%M Z")}\n24hr RREFS LPMM [in]', fontsize=10, fontweight='bold', pad=8)
-        axes_rrefs[i].add_feature(cfeature.STATES, linewidth=0.8, edgecolor='black')
-        axes_rrefs[i].add_feature(USCOUNTIES.with_scale('500k'), edgecolor='gray', linewidth=0.4)
-        axes_rrefs[i].set_extent([-84.8, -74, 31, 39]) # NC Domain
+        if i < len(refs_results):
+            res = refs_results[i]
+            cs_refs = axes_refs[i].contourf(refs_lons, refs_lats, res['data'], clevs, cmap=cmap, norm=norm, alpha=0.5)
+            axes_refs[i].set_title(f'{res["time"].strftime("%Y-%m-%d %H:%M Z")}\n24hr REFS LPMM [in]', fontsize=10, fontweight='bold', pad=8)
+        axes_refs[i].add_feature(cfeature.STATES, linewidth=0.8, edgecolor='black')
+        axes_refs[i].add_feature(USCOUNTIES.with_scale('500k'), edgecolor='gray', linewidth=0.4)
+        axes_refs[i].set_extent([-84.8, -74, 31, 39]) # NC Domain
     
-    if cs_rrefs:
-        cbar_ax_rrefs = fig_rrefs.add_axes([0.15, 0.12, 0.7, 0.03])
-        cbar_rrefs = fig_rrefs.colorbar(cs_rrefs, cax=cbar_ax_rrefs, orientation='horizontal', ticks=clevs)
-        cbar_rrefs.ax.tick_params(labelsize=11)
-        cbar_rrefs.set_label('Precipitation (inches)', fontsize=15, fontweight='bold')
+    if cs_refs:
+        cbar_ax_refs = fig_refs.add_axes([0.15, 0.12, 0.7, 0.03])
+        cbar_refs = fig_refs.colorbar(cs_refs, cax=cbar_ax_refs, orientation='horizontal', ticks=clevs)
+        cbar_refs.ax.tick_params(labelsize=11)
+        cbar_refs.set_label('Precipitation (inches)', fontsize=15, fontweight='bold')
     
-    fig_rrefs.suptitle(f'24hr RREFS LPMM [in] dprog/dt\n{valid_range}', fontsize=16, fontweight='bold', y=0.96)
-    plt.savefig(os.path.join(output_folder, 'latest_rrefs_compare.png'), dpi=300)
+    fig_refs.suptitle(f'24hr REFS LPMM [in] dprog/dt\n{valid_range}', fontsize=16, fontweight='bold', y=0.96)
+    plt.savefig(os.path.join(output_folder, 'latest_refs_compare.png'), dpi=300)
 
 # C: HREF Threshold Plot
 if len(href_results) >= 1 and href_lons is not None:
