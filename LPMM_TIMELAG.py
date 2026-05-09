@@ -72,21 +72,22 @@ base_url_refs = "https://noaa-rrfs-pds.s3.amazonaws.com/rrfs_a"
 date_now = now_utc.strftime('%Y%m%d')
 date_prev = (now_utc - timedelta(days=1)).strftime('%Y%m%d')
 
-# Logic for 00Z vs 12Z dprog/dt comparison (HREF - 12hr cadence)
+# Logic for 00Z vs 12Z dprog/dt comparison (HREF - 12hr cadence, 24hr accumulation)
 if 13 <= current_hour <= 23:
     target_start = now_utc.replace(hour=12, minute=0, second=0, microsecond=0)
     href_runs = [{"date": date_now, "hour": "12", "f_range": range(1, 25)},
                  {"date": date_now, "hour": "00", "f_range": range(13, 37)},
                  {"date": date_prev, "hour": "12", "f_range": range(25, 49)}]
-    valid_range = f"Valid: 12Z {date_now} to 12Z {(now_utc+timedelta(days=1)).strftime('%Y%m%d')}"
 else:
     target_start = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
     href_runs = [{"date": date_now, "hour": "00", "f_range": range(1, 25)},
                  {"date": date_prev, "hour": "12", "f_range": range(13, 37)},
                  {"date": date_prev, "hour": "00", "f_range": range(25, 49)}]
-    valid_range = f"Valid: 00Z {date_now} to 00Z {(now_utc+timedelta(days=1)).strftime('%Y%m%d')}"
 
-# Logic for REFS dprog/dt comparison (6hr cadence)
+href_valid_range = f"Valid: {target_start.strftime('%H')}Z {target_start.strftime('%Y%m%d')} to {(target_start+timedelta(hours=24)).strftime('%H')}Z {(target_start+timedelta(hours=24)).strftime('%Y%m%d')}"
+refs_valid_range = f"Valid: {target_start.strftime('%H')}Z {target_start.strftime('%Y%m%d')} to {(target_start+timedelta(hours=48)).strftime('%H')}Z {(target_start+timedelta(hours=48)).strftime('%Y%m%d')}"
+
+# Logic for REFS dprog/dt comparison (6hr cadence, 48hr accumulation)
 refs_runs = []
 for i in range(3):
     run_time = target_start - timedelta(hours=6*i)
@@ -94,7 +95,7 @@ for i in range(3):
     refs_runs.append({
         "date": run_time.strftime('%Y%m%d'),
         "hour": f"{run_time.hour:02d}",
-        "f_range": range(hour_diff + 1, hour_diff + 25),
+        "f_range": range(hour_diff + 1, hour_diff + 49), # 48-hour accumulation maxing out at f60
         "time": run_time
     })
 
@@ -130,7 +131,6 @@ for idx, run in enumerate(refs_runs):
     print(f"Processing REFS Run: {run['date']} {run['hour']}Z")
     for f_hour in run['f_range']:
         f_str = f"{f_hour:02d}"
-        # Constructed based on the S3 bucket path you provided
         url = f"{base_url_refs}/refs.{run['date']}/{run['hour']}/enspost/refs.t{run['hour']}z.lpmm.f{f_str}.conus.grib2"
         temp_path = os.path.join(output_folder, f"temp_refs_{idx}_{f_str}.grib2")
         if download_file(url, temp_path):
@@ -157,7 +157,6 @@ if len(href_results) >= 1 and href_lons is not None:
     for i in range(3):
         if i < len(href_results):
             res = href_results[i]
-            # Plotting with the extracted lat/lons to fix geography
             cs = axes[i].contourf(href_lons, href_lats, res['data'], clevs, cmap=cmap, norm=norm, alpha=0.5)
             axes[i].set_title(f'{res["time"].strftime("%Y-%m-%d %H:%M Z")}\n24hr HREF LPMM [in]', fontsize=10, fontweight='bold', pad=8)
         axes[i].add_feature(cfeature.STATES, linewidth=0.8, edgecolor='black')
@@ -170,10 +169,10 @@ if len(href_results) >= 1 and href_lons is not None:
         cbar.ax.tick_params(labelsize=11)
         cbar.set_label('Precipitation (inches)', fontsize=15, fontweight='bold')
     
-    fig.suptitle(f'24hr HREF LPMM [in] dprog/dt\n{valid_range}', fontsize=16, fontweight='bold', y=0.96)
+    fig.suptitle(f'24hr HREF LPMM [in] dprog/dt\n{href_valid_range}', fontsize=16, fontweight='bold', y=0.96)
     plt.savefig(os.path.join(output_folder, 'latest_compare.png'), dpi=300)
 
-# B: REFS Comparison Plot
+# B: REFS Comparison Plot (Updated to 48 hours)
 if len(refs_results) >= 1 and refs_lons is not None:
     fig_refs, axes_refs = plt.subplots(1, 3, figsize=(18, 7.5), subplot_kw={'projection': ccrs.PlateCarree()})
     fig_refs.subplots_adjust(left=0.05, right=0.95, bottom=0.22, top=0.85, wspace=0.05)
@@ -182,7 +181,7 @@ if len(refs_results) >= 1 and refs_lons is not None:
         if i < len(refs_results):
             res = refs_results[i]
             cs_refs = axes_refs[i].contourf(refs_lons, refs_lats, res['data'], clevs, cmap=cmap, norm=norm, alpha=0.5)
-            axes_refs[i].set_title(f'{res["time"].strftime("%Y-%m-%d %H:%M Z")}\n24hr REFS LPMM [in]', fontsize=10, fontweight='bold', pad=8)
+            axes_refs[i].set_title(f'{res["time"].strftime("%Y-%m-%d %H:%M Z")}\n48hr REFS LPMM [in]', fontsize=10, fontweight='bold', pad=8)
         axes_refs[i].add_feature(cfeature.STATES, linewidth=0.8, edgecolor='black')
         axes_refs[i].add_feature(USCOUNTIES.with_scale('500k'), edgecolor='gray', linewidth=0.4)
         axes_refs[i].set_extent([-84.8, -74, 31, 39]) # NC Domain
@@ -193,7 +192,7 @@ if len(refs_results) >= 1 and refs_lons is not None:
         cbar_refs.ax.tick_params(labelsize=11)
         cbar_refs.set_label('Precipitation (inches)', fontsize=15, fontweight='bold')
     
-    fig_refs.suptitle(f'24hr REFS LPMM [in] dprog/dt\n{valid_range}', fontsize=16, fontweight='bold', y=0.96)
+    fig_refs.suptitle(f'48hr REFS LPMM [in] dprog/dt\n{refs_valid_range}', fontsize=16, fontweight='bold', y=0.96)
     plt.savefig(os.path.join(output_folder, 'latest_refs_compare.png'), dpi=300)
 
 # C: HREF Threshold Plot
@@ -214,7 +213,7 @@ if len(href_results) >= 1 and href_lons is not None:
         ax2[row, col].legend(handles=legend_elements, loc='lower right', title='HREF Run', fontsize=8)
     
     fig2.subplots_adjust(left=0.05, right=0.95, bottom=0.05, top=0.88, wspace=0.1, hspace=0.2)
-    fig2.suptitle(f'24hr HREF LPMM Threshold Compare\n{valid_range}', fontsize=16, fontweight='bold', y=0.96)
+    fig2.suptitle(f'24hr HREF LPMM Threshold Compare\n{href_valid_range}', fontsize=16, fontweight='bold', y=0.96)
     plt.savefig(os.path.join(output_folder, 'latest_threshold.png'), dpi=300, bbox_inches='tight')
 
 # --- 6. CLEANUP ---
