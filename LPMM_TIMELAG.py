@@ -160,6 +160,9 @@ cmap_data = [(1,1,1), (0.31,0.81,0.81), (0,1,1), (0,0.87,0.5), (0,0.75,0), (0.5,
 cmap = mcolors.ListedColormap(cmap_data, 'precip')
 norm = mcolors.BoundaryNorm(clevs, cmap.N)
 
+# Shared plot elements
+blue_shades = ['#00008B', '#4169E1', '#87CEFA']
+
 # A: HREF Comparison Plot
 if len(href_results) >= 1 and href_lons is not None:
     fig, axes = plt.subplots(1, 3, figsize=(18, 7.5), subplot_kw={'projection': ccrs.PlateCarree()})
@@ -183,7 +186,7 @@ if len(href_results) >= 1 and href_lons is not None:
     fig.suptitle(f'24hr HREF LPMM [in] dprog/dt\n{href_valid_range}', fontsize=16, fontweight='bold', y=0.96)
     plt.savefig(os.path.join(output_folder, 'latest_compare.png'), dpi=300)
 
-# B: REFS Comparison Plot (Updated to 48 hours)
+# B: REFS Comparison Plot
 if len(refs_results) >= 1 and refs_lons is not None:
     fig_refs, axes_refs = plt.subplots(1, 3, figsize=(18, 7.5), subplot_kw={'projection': ccrs.PlateCarree()})
     fig_refs.subplots_adjust(left=0.05, right=0.95, bottom=0.22, top=0.85, wspace=0.05)
@@ -209,9 +212,9 @@ if len(refs_results) >= 1 and refs_lons is not None:
 # C: HREF Threshold Plot
 if len(href_results) >= 1 and href_lons is not None:
     fig2, ax2 = plt.subplots(2, 2, figsize=(14, 11), subplot_kw={'projection': ccrs.PlateCarree()})
-    blue_shades = ['#00008B', '#4169E1', '#87CEFA']
     legend_elements = [Line2D([0], [0], marker='o', color='w', label=res['time'].strftime("%Y-%m-%d %H:%M Z"),
                               markerfacecolor=blue_shades[idx], markersize=8) for idx, res in enumerate(href_results)]
+    # Standard 24hr thresholds
     for i, thresh in enumerate([3, 6, 9, 12]):
         row, col = divmod(i, 2)
         for j, res in enumerate(href_results):
@@ -226,6 +229,28 @@ if len(href_results) >= 1 and href_lons is not None:
     fig2.subplots_adjust(left=0.05, right=0.95, bottom=0.05, top=0.88, wspace=0.1, hspace=0.2)
     fig2.suptitle(f'24hr HREF LPMM Threshold Compare\n{href_valid_range}', fontsize=16, fontweight='bold', y=0.96)
     plt.savefig(os.path.join(output_folder, 'latest_threshold.png'), dpi=300, bbox_inches='tight')
+
+# D: REFS Threshold Plot (48hr functionality with identical thresholds)
+if len(refs_results) >= 1 and refs_lons is not None:
+    fig_refs_thresh, ax_refs_thresh = plt.subplots(2, 2, figsize=(14, 11), subplot_kw={'projection': ccrs.PlateCarree()})
+    legend_elements_refs = [Line2D([0], [0], marker='o', color='w', label=res['time'].strftime("%Y-%m-%d %H:%M Z"),
+                              markerfacecolor=blue_shades[idx], markersize=8) for idx, res in enumerate(refs_results)]
+    
+    # Matching thresholds back to [3, 6, 9, 12]
+    for i, thresh in enumerate([3, 6, 9, 12]):
+        row, col = divmod(i, 2)
+        for j, res in enumerate(refs_results):
+            m_data = np.ma.masked_less(res['data'], thresh)
+            ax_refs_thresh[row, col].contourf(refs_lons, refs_lats, m_data, cmap=mcolors.ListedColormap([blue_shades[j]]), levels=[thresh, 99], alpha=0.6)
+        ax_refs_thresh[row, col].add_feature(cfeature.STATES, linewidth=0.8, edgecolor='black')
+        ax_refs_thresh[row, col].add_feature(USCOUNTIES.with_scale('500k'), edgecolor='gray', linewidth=0.3, alpha=0.5)
+        ax_refs_thresh[row, col].set_extent([-84.8, -74, 31, 39]) # NC Domain
+        ax_refs_thresh[row, col].set_title(f'> {thresh} inches', fontsize=12, fontweight='bold')
+        ax_refs_thresh[row, col].legend(handles=legend_elements_refs, loc='lower right', title='REFS Run', fontsize=8)
+    
+    fig_refs_thresh.subplots_adjust(left=0.05, right=0.95, bottom=0.05, top=0.88, wspace=0.1, hspace=0.2)
+    fig_refs_thresh.suptitle(f'48hr REFS LPMM Threshold Compare\n{refs_valid_range}', fontsize=16, fontweight='bold', y=0.96)
+    plt.savefig(os.path.join(output_folder, 'latest_refs_threshold.png'), dpi=300, bbox_inches='tight')
 
 # --- 6. CLEANUP ---
 clean_up_grib_files(output_folder)
