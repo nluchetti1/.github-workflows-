@@ -1,8 +1,9 @@
-name: HREF LPMM Data Fetch
+name: HREF & REFS LPMM Data Fetch
 
 on:
   schedule:
-    - cron: '20 3,15 * * *'
+    # Runs at 03:20, 09:20, 15:20, and 21:20 UTC
+    - cron: '20 3,9,15,21 * * *'
   workflow_dispatch: 
 
 jobs:
@@ -29,15 +30,21 @@ jobs:
         run: |
           pip install numpy pandas requests matplotlib cartopy pygrib metpy netCDF4 pytz
 
-      - name: Wait for NOMADS Data
-        id: nomads_check
+      - name: Wait for Model Data (REFS AWS Check)
+        id: model_check
         run: |
-          DATE=$(date -u +%Y%m%d)
           HOUR=$(date -u +%H)
-          if [ "$HOUR" -lt 12 ]; then RUN_HOUR="00"; else RUN_HOUR="12"; fi
-          URL="https://nomads.ncep.noaa.gov/pub/data/nccf/com/href/prod/href.${DATE}/ensprod/href.t${RUN_HOUR}z.conus.lpmm.f01.grib2"
+          # Determine if we are waiting for the 00, 06, 12, or 18Z run
+          if [ "$HOUR" -ge 21 ] || [ "$HOUR" -lt 3 ]; then 
+            RUN_HOUR="18"
+            DATE=$(date -u -d "6 hours ago" +%Y%m%d) # Handle midnight UTC crossover
+          elif [ "$HOUR" -ge 15 ]; then RUN_HOUR="12"; DATE=$(date -u +%Y%m%d)
+          elif [ "$HOUR" -ge 9 ]; then RUN_HOUR="06"; DATE=$(date -u +%Y%m%d)
+          else RUN_HOUR="00"; DATE=$(date -u +%Y%m%d); fi
           
-          echo "Checking NOMADS: $URL"
+          URL="https://noaa-rrfs-pds.s3.amazonaws.com/rrfs_a/refs.${DATE}/${RUN_HOUR}/enspost/refs.t${RUN_HOUR}z.lpmm.f01.conus.grib2"
+          
+          echo "Checking AWS for REFS: $URL"
           for i in {1..12}; do
             if curl --output /dev/null --silent --head --fail "$URL"; then
               echo "Data Ready!"
@@ -50,7 +57,7 @@ jobs:
           echo "status=failure" >> $GITHUB_OUTPUT
           exit 1
 
-      - name: Run HREF Script
+      - name: Run Weather Script
         run: python LPMM_TIMELAG.py
 
       - name: Prepare Dashboard
@@ -58,11 +65,11 @@ jobs:
         run: |
           TIMESTAMP=$(date -u +'%Y-%m-%d %H:%M UTC')
           
-          if [[ "${{ steps.nomads_check.outputs.status }}" == "success" ]]; then
+          if [[ "${{ steps.model_check.outputs.status }}" == "success" ]]; then
             STATUS="OPERATIONAL"
             COLOR="#00ff00"
           else
-            STATUS="NOMADS DATA TIMEOUT"
+            STATUS="DATA TIMEOUT"
             COLOR="#ff4d4d"
           fi
           
