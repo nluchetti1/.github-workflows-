@@ -86,15 +86,16 @@ else:
 href_valid_range = f"Valid: {href_target.strftime('%H')}Z {href_target.strftime('%Y%m%d')} to {(href_target+timedelta(hours=24)).strftime('%H')}Z {(href_target+timedelta(hours=24)).strftime('%Y%m%d')}"
 
 # --- REFS Logic (6hr cadence) ---
-if 3 <= current_hour < 9:
+# Shifting windows back by 1 hour ensures 02:58 AM targets 00Z, and 08:04 AM targets 06Z
+if 2 <= current_hour < 8:
     refs_target = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
-elif 9 <= current_hour < 15:
+elif 8 <= current_hour < 14:
     refs_target = now_utc.replace(hour=6, minute=0, second=0, microsecond=0)
-elif 15 <= current_hour < 21:
+elif 14 <= current_hour < 20:
     refs_target = now_utc.replace(hour=12, minute=0, second=0, microsecond=0)
 else:
     refs_target = now_utc.replace(hour=18, minute=0, second=0, microsecond=0)
-    if current_hour < 3: # Handle midnight crossover
+    if current_hour < 2: # Handle midnight crossover (00:00 to 01:59 UTC)
         refs_target -= timedelta(days=1)
 
 refs_valid_range = f"Valid: {refs_target.strftime('%H')}Z {refs_target.strftime('%Y%m%d')} to {(refs_target+timedelta(hours=48)).strftime('%H')}Z {(refs_target+timedelta(hours=48)).strftime('%Y%m%d')}"
