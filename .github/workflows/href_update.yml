@@ -21,6 +21,18 @@ jobs:
         with:
           python-version: '3.10'
 
+      # --- NEW STEP: Cache map layers to prevent GitHub Raw timeouts ---
+      - name: Cache MetPy and Cartopy Shapefiles
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/metpy
+            ~/.cache/cartopy
+          key: ${{ runner.os }}-metpy-cartopy-v1
+          restore-keys: |
+            ${{ runner.os }}-metpy-cartopy-
+
+       Tar
       - name: Install System Dependencies
         run: |
           sudo apt-get update
@@ -34,12 +46,16 @@ jobs:
         id: model_check
         run: |
           HOUR=$(date -u +%H)
-          # Determine if we are waiting for the 00, 06, 12, or 18Z run
-          if [ "$HOUR" -ge 21 ] || [ "$HOUR" -lt 3 ]; then 
+          # Shifted thresholds back by 1 hour to match Python updates
+          if [ "$HOUR" -ge 20 ] || [ "$HOUR" -lt 2 ]; then 
             RUN_HOUR="18"
-            DATE=$(date -u -d "6 hours ago" +%Y%m%d) # Handle midnight UTC crossover
-          elif [ "$HOUR" -ge 15 ]; then RUN_HOUR="12"; DATE=$(date -u +%Y%m%d)
-          elif [ "$HOUR" -ge 9 ]; then RUN_HOUR="06"; DATE=$(date -u +%Y%m%d)
+            if [ "$HOUR" -lt 2 ]; then 
+              DATE=$(date -u -d "yesterday" +%Y%m%d) 
+            else 
+              DATE=$(date -u +%Y%m%d)
+            fi
+          elif [ "$HOUR" -ge 14 ]; then RUN_HOUR="12"; DATE=$(date -u +%Y%m%d)
+          elif [ "$HOUR" -ge 8 ]; then RUN_HOUR="06"; DATE=$(date -u +%Y%m%d)
           else RUN_HOUR="00"; DATE=$(date -u +%Y%m%d); fi
           
           URL="https://noaa-rrfs-pds.s3.amazonaws.com/rrfs_a/refs.${DATE}/${RUN_HOUR}/enspost/refs.t${RUN_HOUR}z.lpmm.f01.conus.grib2"
@@ -73,12 +89,10 @@ jobs:
             COLOR="#ff4d4d"
           fi
           
-          # Inject status and time into HTML
           sed -i "s/LAST_UPDATED/$TIMESTAMP/g" index.html
           sed -i "s/SERVER_STATUS/$STATUS/g" index.html
           sed -i "s/STATUS_COLOR/$COLOR/g" index.html
           
-          # Copy to deploy folder
           cp index.html ./href_data/
 
       - name: Deploy to GitHub Pages
