@@ -14,14 +14,13 @@ jobs:
       
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      # --- NEW STEP: Cache map layers to prevent GitHub Raw timeouts ---
       - name: Cache MetPy and Cartopy Shapefiles
         uses: actions/cache@v4
         with:
@@ -32,7 +31,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-metpy-cartopy-
 
-       Tar
       - name: Install System Dependencies
         run: |
           sudo apt-get update
@@ -46,7 +44,6 @@ jobs:
         id: model_check
         run: |
           HOUR=$(date -u +%H)
-          # Shifted thresholds back by 1 hour to match Python updates
           if [ "$HOUR" -ge 20 ] || [ "$HOUR" -lt 2 ]; then 
             RUN_HOUR="18"
             if [ "$HOUR" -lt 2 ]; then 
