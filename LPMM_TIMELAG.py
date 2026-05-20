@@ -122,6 +122,7 @@ refs_lats, refs_lons = None, None
 # 4A. Fetching HREF Data
 for idx, run in enumerate(href_runs):
     hourly_data = []
+    expected_count = len(run['f_range'])
     print(f"Processing HREF Run: {run['date']} {run['hour']}Z")
     for f_hour in run['f_range']:
         f_str = f"{f_hour:02d}"
@@ -133,13 +134,18 @@ for idx, run in enumerate(href_runs):
                 hourly_data.append(data * mm_to_inch)
                 href_lats, href_lons = lats, lons
             if os.path.exists(temp_path): os.remove(temp_path)
-    if hourly_data:
+            
+    # Completeness Gate: Reject run entirely if missing files
+    if len(hourly_data) == expected_count:
         href_results.append({"data": np.sum(hourly_data, axis=0), 
                              "time": pd.to_datetime(run['date'] + ' ' + run['hour'] + 'Z')})
+    else:
+        print(f"⚠️ Skipping HREF Run {run['date']} {run['hour']}Z: Incomplete data ({len(hourly_data)}/{expected_count} files).")
 
 # 4B. Fetching REFS Data from AWS S3
 for idx, run in enumerate(refs_runs):
     hourly_data = []
+    expected_count = len(run['f_range'])
     print(f"Processing REFS Run: {run['date']} {run['hour']}Z")
     for f_hour in run['f_range']:
         f_str = f"{f_hour:02d}"
@@ -151,9 +157,13 @@ for idx, run in enumerate(refs_runs):
                 hourly_data.append(data * mm_to_inch)
                 refs_lats, refs_lons = lats, lons
             if os.path.exists(temp_path): os.remove(temp_path)
-    if hourly_data:
+            
+    # Completeness Gate: Reject run entirely if missing files
+    if len(hourly_data) == expected_count:
         refs_results.append({"data": np.sum(hourly_data, axis=0), 
                               "time": pd.to_datetime(run['date'] + ' ' + run['hour'] + 'Z')})
+    else:
+        print(f"⚠️ Skipping REFS Run {run['date']} {run['hour']}Z: Incomplete data ({len(hourly_data)}/{expected_count} files).")
 
 # --- 5. PLOTTING ---
 clevs = [0.0, 0.01, 0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0, 10., 12., 15., 18.]
