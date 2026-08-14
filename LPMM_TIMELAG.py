@@ -196,7 +196,7 @@ if len(href_results) >= 1 and href_lons is not None:
             axes[i].set_title(f'{res["time"].strftime("%Y-%m-%d %H:%M Z")}\n24hr HREF LPMM [in]', fontsize=10, fontweight='bold', pad=8)
         axes[i].add_feature(cfeature.STATES, linewidth=0.8, edgecolor='black')
         axes[i].add_feature(USCOUNTIES.with_scale('500k'), edgecolor='gray', linewidth=0.4)
-        axes[i].set_extent([-87.5, -79.0, 24.0, 31.5])
+        axes[i].set_extent([-84.8, -74, 31, 39])
     
     if cs:
         cbar_ax = fig.add_axes([0.15, 0.12, 0.7, 0.03])
@@ -223,7 +223,7 @@ if len(refs_results) >= 1 and refs_lons is not None:
             axes_refs[i].set_title(f'{res["time"].strftime("%Y-%m-%d %H:%M Z")}\n48hr REFS LPMM [in]', fontsize=10, fontweight='bold', pad=8)
         axes_refs[i].add_feature(cfeature.STATES, linewidth=0.8, edgecolor='black')
         axes_refs[i].add_feature(USCOUNTIES.with_scale('500k'), edgecolor='gray', linewidth=0.4)
-        axes_refs[i].set_extent([-87.5, -79.0, 24.0, 31.5])
+        axes_refs[i].set_extent([-84.8, -74, 31, 39])
     
     if cs_refs:
         cbar_ax_refs = fig_refs.add_axes([0.15, 0.12, 0.7, 0.03])
@@ -255,7 +255,7 @@ if len(href_results) >= 1 and href_lons is not None:
             )
         ax2[row, col].add_feature(cfeature.STATES, linewidth=0.8, edgecolor='black')
         ax2[row, col].add_feature(USCOUNTIES.with_scale('500k'), edgecolor='gray', linewidth=0.3, alpha=0.5)
-        ax2[row, col].set_extent([-87.5, -79.0, 24.0, 31.5])
+        ax2[row, col].set_extent([-84.8, -74, 31, 39])
         ax2[row, col].set_title(f'> {thresh} inches', fontsize=12, fontweight='bold')
         ax2[row, col].legend(handles=legend_elements, loc='lower right', title='HREF Run', fontsize=8)
     
@@ -284,7 +284,7 @@ if len(refs_results) >= 1 and refs_lons is not None:
             )
         ax_refs_thresh[row, col].add_feature(cfeature.STATES, linewidth=0.8, edgecolor='black')
         ax_refs_thresh[row, col].add_feature(USCOUNTIES.with_scale('500k'), edgecolor='gray', linewidth=0.3, alpha=0.5)
-        ax_refs_thresh[row, col].set_extent([-87.5, -79.0, 24.0, 31.5])
+        ax_refs_thresh[row, col].set_extent([-84.8, -74, 31, 39])
         ax_refs_thresh[row, col].set_title(f'> {thresh} inches', fontsize=12, fontweight='bold')
         ax_refs_thresh[row, col].legend(handles=legend_elements_refs, loc='lower right', title='REFS Run', fontsize=8)
     
