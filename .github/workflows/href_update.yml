@@ -26,8 +26,8 @@ jobs:
         with:
           path: |
             ~/.cache/metpy
-            ~/.cache/cartopy
-          key: ${{ runner.os }}-metpy-cartopy-v1
+            ~/.local/share/cartopy
+          key: ${{ runner.os }}-metpy-cartopy-v2
           restore-keys: |
             ${{ runner.os }}-metpy-cartopy-
 
