@@ -64,9 +64,8 @@ def clean_up_grib_files(directory):
 now_utc = datetime.now(pytz.UTC)
 current_hour = now_utc.hour
 
-# BOTH ENDPOINTS POINTING TO NOAA NOMADS
 base_url_href = "https://nomads.ncep.noaa.gov/pub/data/nccf/com/href/prod"
-base_url_refs = "https://nomads.ncep.noaa.gov/pub/data/nccf/com/rrfs/prod" 
+base_url_refs = "https://nomads.ncep.noaa.gov/pub/data/nccf/com/refs/para" 
 
 date_now = now_utc.strftime('%Y%m%d')
 date_prev = (now_utc - timedelta(days=1)).strftime('%Y%m%d')
@@ -143,14 +142,14 @@ for idx, run in enumerate(href_runs):
     else:
         print(f"⚠️ Skipping HREF Run {run['date']} {run['hour']}Z: Incomplete data ({len(hourly_data)}/{expected_count} files).")
 
-# 4B. Fetching REFS Data (Via NOMADS)
+# 4B. Fetching REFS Data (Via NOMADS /refs/para/.../ensprod/)
 for idx, run in enumerate(refs_runs):
     hourly_data = []
     expected_count = len(run['f_range'])
     print(f"Processing REFS Run: {run['date']} {run['hour']}Z")
     for f_hour in run['f_range']:
         f_str = f"{f_hour:02d}"
-        url = f"{base_url_refs}/refs.{run['date']}/{run['hour']}/enspost/refs.t{run['hour']}z.lpmm.f{f_str}.conus.grib2"
+        url = f"{base_url_refs}/refs.{run['date']}/{run['hour']}/ensprod/refs.t{run['hour']}z.lpmm.f{f_str}.conus.grib2"
         temp_path = os.path.join(output_folder, f"temp_refs_{idx}_{f_str}.grib2")
         if download_file(url, temp_path):
             data, lats, lons = unpack_total_precipitation(temp_path)
