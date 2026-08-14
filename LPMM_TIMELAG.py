@@ -46,7 +46,7 @@ def unpack_total_precipitation(grib_path):
             if msgs:
                 msg = msgs[0]
                 data = msg.values
-                lats, lons = msg.latlons() # Fix for blank maps
+                lats, lons = msg.latlons()
                 return data, lats, lons
     except Exception as e:
         print(f"Unpack error: {e}")
@@ -61,7 +61,7 @@ def clean_up_grib_files(directory):
         except:
             pass
 
-# --- 3. TIMING & RUN SELECTION (NC Domain) ---
+# --- 3. TIMING & RUN SELECTION ---
 now_utc = datetime.now(pytz.UTC)
 current_hour = now_utc.hour
 
@@ -86,7 +86,6 @@ else:
 href_valid_range = f"Valid: {href_target.strftime('%H')}Z {href_target.strftime('%Y%m%d')} to {(href_target+timedelta(hours=24)).strftime('%H')}Z {(href_target+timedelta(hours=24)).strftime('%Y%m%d')}"
 
 # --- REFS Logic (6hr cadence) ---
-# Shifting windows back by 1 hour ensures 02:58 AM targets 00Z, and 08:04 AM targets 06Z
 if 2 <= current_hour < 8:
     refs_target = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
 elif 8 <= current_hour < 14:
@@ -95,7 +94,7 @@ elif 14 <= current_hour < 20:
     refs_target = now_utc.replace(hour=12, minute=0, second=0, microsecond=0)
 else:
     refs_target = now_utc.replace(hour=18, minute=0, second=0, microsecond=0)
-    if current_hour < 2: # Handle midnight crossover (00:00 to 01:59 UTC)
+    if current_hour < 2:
         refs_target -= timedelta(days=1)
 
 refs_valid_range = f"Valid: {refs_target.strftime('%H')}Z {refs_target.strftime('%Y%m%d')} to {(refs_target+timedelta(hours=48)).strftime('%H')}Z {(refs_target+timedelta(hours=48)).strftime('%Y%m%d')}"
@@ -107,7 +106,7 @@ for i in range(3):
     refs_runs.append({
         "date": run_time.strftime('%Y%m%d'),
         "hour": f"{run_time.hour:02d}",
-        "f_range": range(hour_diff + 1, hour_diff + 49), # 48-hour accumulation
+        "f_range": range(hour_diff + 1, hour_diff + 49),
         "time": run_time
     })
 
@@ -135,14 +134,13 @@ for idx, run in enumerate(href_runs):
                 href_lats, href_lons = lats, lons
             if os.path.exists(temp_path): os.remove(temp_path)
             
-    # Completeness Gate: Reject run entirely if missing files
     if len(hourly_data) == expected_count:
         href_results.append({"data": np.sum(hourly_data, axis=0), 
                              "time": pd.to_datetime(run['date'] + ' ' + run['hour'] + 'Z')})
     else:
         print(f"⚠️ Skipping HREF Run {run['date']} {run['hour']}Z: Incomplete data ({len(hourly_data)}/{expected_count} files).")
 
-# 4B. Fetching REFS Data from AWS S3
+# 4B. Fetching REFS Data
 for idx, run in enumerate(refs_runs):
     hourly_data = []
     expected_count = len(run['f_range'])
@@ -158,7 +156,6 @@ for idx, run in enumerate(refs_runs):
                 refs_lats, refs_lons = lats, lons
             if os.path.exists(temp_path): os.remove(temp_path)
             
-    # Completeness Gate: Reject run entirely if missing files
     if len(hourly_data) == expected_count:
         refs_results.append({"data": np.sum(hourly_data, axis=0), 
                               "time": pd.to_datetime(run['date'] + ' ' + run['hour'] + 'Z')})
@@ -171,7 +168,6 @@ cmap_data = [(1,1,1), (0.31,0.81,0.81), (0,1,1), (0,0.87,0.5), (0,0.75,0), (0.5,
 cmap = mcolors.ListedColormap(cmap_data, 'precip')
 norm = mcolors.BoundaryNorm(clevs, cmap.N)
 
-# Shared plot elements
 blue_shades = ['#00008B', '#4169E1', '#87CEFA']
 
 # A: HREF Comparison Plot
@@ -182,11 +178,12 @@ if len(href_results) >= 1 and href_lons is not None:
     for i in range(3):
         if i < len(href_results):
             res = href_results[i]
-            cs = axes[i].contourf(href_lons, href_lats, res['data'], clevs, cmap=cmap, norm=norm, alpha=0.5)
+            # ADDED transform=ccrs.PlateCarree()
+            cs = axes[i].contourf(href_lons, href_lats, res['data'], clevs, cmap=cmap, norm=norm, alpha=0.5, transform=ccrs.PlateCarree())
             axes[i].set_title(f'{res["time"].strftime("%Y-%m-%d %H:%M Z")}\n24hr HREF LPMM [in]', fontsize=10, fontweight='bold', pad=8)
         axes[i].add_feature(cfeature.STATES, linewidth=0.8, edgecolor='black')
         axes[i].add_feature(USCOUNTIES.with_scale('500k'), edgecolor='gray', linewidth=0.4)
-        axes[i].set_extent([-84.8, -74, 31, 39]) # NC Domain
+        axes[i].set_extent([-87.5, -79.0, 24.0, 31.5]) # Updated to Florida Domain
     
     if cs:
         cbar_ax = fig.add_axes([0.15, 0.12, 0.7, 0.03])
@@ -205,11 +202,12 @@ if len(refs_results) >= 1 and refs_lons is not None:
     for i in range(3):
         if i < len(refs_results):
             res = refs_results[i]
-            cs_refs = axes_refs[i].contourf(refs_lons, refs_lats, res['data'], clevs, cmap=cmap, norm=norm, alpha=0.5)
+            # ADDED transform=ccrs.PlateCarree()
+            cs_refs = axes_refs[i].contourf(refs_lons, refs_lats, res['data'], clevs, cmap=cmap, norm=norm, alpha=0.5, transform=ccrs.PlateCarree())
             axes_refs[i].set_title(f'{res["time"].strftime("%Y-%m-%d %H:%M Z")}\n48hr REFS LPMM [in]', fontsize=10, fontweight='bold', pad=8)
         axes_refs[i].add_feature(cfeature.STATES, linewidth=0.8, edgecolor='black')
         axes_refs[i].add_feature(USCOUNTIES.with_scale('500k'), edgecolor='gray', linewidth=0.4)
-        axes_refs[i].set_extent([-84.8, -74, 31, 39]) # NC Domain
+        axes_refs[i].set_extent([-87.5, -79.0, 24.0, 31.5]) # Updated to Florida Domain
     
     if cs_refs:
         cbar_ax_refs = fig_refs.add_axes([0.15, 0.12, 0.7, 0.03])
@@ -225,15 +223,16 @@ if len(href_results) >= 1 and href_lons is not None:
     fig2, ax2 = plt.subplots(2, 2, figsize=(14, 11), subplot_kw={'projection': ccrs.PlateCarree()})
     legend_elements = [Line2D([0], [0], marker='o', color='w', label=res['time'].strftime("%Y-%m-%d %H:%M Z"),
                               markerfacecolor=blue_shades[idx], markersize=8) for idx, res in enumerate(href_results)]
-    # Standard 24hr thresholds
+    
     for i, thresh in enumerate([3, 6, 9, 12]):
         row, col = divmod(i, 2)
         for j, res in enumerate(href_results):
             m_data = np.ma.masked_less(res['data'], thresh)
-            ax2[row, col].contourf(href_lons, href_lats, m_data, cmap=mcolors.ListedColormap([blue_shades[j]]), levels=[thresh, 99], alpha=0.6)
+            # ADDED transform=ccrs.PlateCarree()
+            ax2[row, col].contourf(href_lons, href_lats, m_data, cmap=mcolors.ListedColormap([blue_shades[j]]), levels=[thresh, 99], alpha=0.6, transform=ccrs.PlateCarree())
         ax2[row, col].add_feature(cfeature.STATES, linewidth=0.8, edgecolor='black')
         ax2[row, col].add_feature(USCOUNTIES.with_scale('500k'), edgecolor='gray', linewidth=0.3, alpha=0.5)
-        ax2[row, col].set_extent([-84.8, -74, 31, 39]) # NC Domain
+        ax2[row, col].set_extent([-87.5, -79.0, 24.0, 31.5]) # Updated to Florida Domain
         ax2[row, col].set_title(f'> {thresh} inches', fontsize=12, fontweight='bold')
         ax2[row, col].legend(handles=legend_elements, loc='lower right', title='HREF Run', fontsize=8)
     
@@ -241,21 +240,21 @@ if len(href_results) >= 1 and href_lons is not None:
     fig2.suptitle(f'24hr HREF LPMM Threshold Compare\n{href_valid_range}', fontsize=16, fontweight='bold', y=0.96)
     plt.savefig(os.path.join(output_folder, 'latest_threshold.png'), dpi=300, bbox_inches='tight')
 
-# D: REFS Threshold Plot (48hr functionality with identical thresholds)
+# D: REFS Threshold Plot
 if len(refs_results) >= 1 and refs_lons is not None:
     fig_refs_thresh, ax_refs_thresh = plt.subplots(2, 2, figsize=(14, 11), subplot_kw={'projection': ccrs.PlateCarree()})
     legend_elements_refs = [Line2D([0], [0], marker='o', color='w', label=res['time'].strftime("%Y-%m-%d %H:%M Z"),
                               markerfacecolor=blue_shades[idx], markersize=8) for idx, res in enumerate(refs_results)]
     
-    # Matching thresholds back to [3, 6, 9, 12]
     for i, thresh in enumerate([3, 6, 9, 12]):
         row, col = divmod(i, 2)
         for j, res in enumerate(refs_results):
             m_data = np.ma.masked_less(res['data'], thresh)
-            ax_refs_thresh[row, col].contourf(refs_lons, refs_lats, m_data, cmap=mcolors.ListedColormap([blue_shades[j]]), levels=[thresh, 99], alpha=0.6)
+            # ADDED transform=ccrs.PlateCarree()
+            ax_refs_thresh[row, col].contourf(refs_lons, refs_lats, m_data, cmap=mcolors.ListedColormap([blue_shades[j]]), levels=[thresh, 99], alpha=0.6, transform=ccrs.PlateCarree())
         ax_refs_thresh[row, col].add_feature(cfeature.STATES, linewidth=0.8, edgecolor='black')
         ax_refs_thresh[row, col].add_feature(USCOUNTIES.with_scale('500k'), edgecolor='gray', linewidth=0.3, alpha=0.5)
-        ax_refs_thresh[row, col].set_extent([-84.8, -74, 31, 39]) # NC Domain
+        ax_refs_thresh[row, col].set_extent([-87.5, -79.0, 24.0, 31.5]) # Updated to Florida Domain
         ax_refs_thresh[row, col].set_title(f'> {thresh} inches', fontsize=12, fontweight='bold')
         ax_refs_thresh[row, col].legend(handles=legend_elements_refs, loc='lower right', title='REFS Run', fontsize=8)
     
