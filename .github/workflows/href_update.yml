@@ -55,7 +55,8 @@ jobs:
           elif [ "$HOUR" -ge 8 ]; then RUN_HOUR="06"; DATE=$(date -u +%Y%m%d)
           else RUN_HOUR="00"; DATE=$(date -u +%Y%m%d); fi
           
-          URL="https://nomads.ncep.noaa.gov/pub/data/nccf/com/rrfs/prod/refs.${DATE}/${RUN_HOUR}/enspost/refs.t${RUN_HOUR}z.lpmm.f01.conus.grib2"
+          # Exact path matching /pub/data/nccf/com/refs/para/.../ensprod/
+          URL="https://nomads.ncep.noaa.gov/pub/data/nccf/com/refs/para/refs.${DATE}/${RUN_HOUR}/ensprod/refs.t${RUN_HOUR}z.lpmm.f01.conus.grib2"
           
           echo "Checking NOMADS for REFS: $URL"
           for i in {1..12}; do
@@ -86,6 +87,7 @@ jobs:
             COLOR="#ff4d4d"
           fi
           
+          mkdir -p ./href_data
           sed -i "s/LAST_UPDATED/$TIMESTAMP/g" index.html
           sed -i "s/SERVER_STATUS/$STATUS/g" index.html
           sed -i "s/STATUS_COLOR/$COLOR/g" index.html
