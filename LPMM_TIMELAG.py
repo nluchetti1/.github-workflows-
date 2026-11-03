@@ -65,7 +65,7 @@ now_utc = datetime.now(pytz.UTC)
 current_hour = now_utc.hour
 
 base_url_href = "https://nomads.ncep.noaa.gov/pub/data/nccf/com/href/prod"
-base_url_refs = "https://nomads.ncep.noaa.gov/pub/data/nccf/com/refs/para" 
+base_url_refs = "https://nomads.ncep.noaa.gov/pub/data/nccf/com/refs/prod" 
 
 date_now = now_utc.strftime('%Y%m%d')
 date_prev = (now_utc - timedelta(days=1)).strftime('%Y%m%d')
@@ -142,7 +142,7 @@ for idx, run in enumerate(href_runs):
     else:
         print(f"⚠️ Skipping HREF Run {run['date']} {run['hour']}Z: Incomplete data ({len(hourly_data)}/{expected_count} files).")
 
-# 4B. Fetching REFS Data (Via NOMADS /refs/para/.../ensprod/)
+# 4B. Fetching REFS Data (Via NOMADS /refs/prod/.../ensprod/)
 for idx, run in enumerate(refs_runs):
     hourly_data = []
     expected_count = len(run['f_range'])
